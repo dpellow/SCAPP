@@ -1,12 +1,17 @@
 from __future__ import division
 import numpy as np
+#########################
+import math ###############################
 import networkx as nx
 import re, pysam
-complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
+import logging
 
+complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
+######################
+logger = logging.getLogger("recycle_logger")#######################
 
 def readfq(fp): # this is a generator function
-    """ # lh3's fast fastX reader: 
+    """ # lh3's fast fastX reader:
         https://github.com/lh3/readfq/blob/master/readfq.py
     """
     last = None # this is a buffer keeping the last unprocessed line
@@ -46,7 +51,7 @@ def rc_seq(dna):
 def get_num_from_spades_name(name):
     name_parts = name.split("_")
     contig_length = name_parts[1]
-    return int(contig_length)      
+    return int(contig_length)
 
 def get_length_from_spades_name(name):
     name_parts = name.split("_")
@@ -62,8 +67,8 @@ def get_cov_from_spades_name(name):
 def get_fastg_digraph(fastg_name):
     """ scans through fastg headers as an adjacency list
         builds and returns a nx directed graph using adjacencies
-        note: no connections are created between each node and its 
-        rc node - we need to take care to maintain these 
+        note: no connections are created between each node and its
+        rc node - we need to take care to maintain these
     """
     lines = []
     fp = open(fastg_name, 'r')
@@ -74,11 +79,11 @@ def get_fastg_digraph(fastg_name):
     return nx.parse_adjlist(lines, create_using=G)
 
 def get_fastg_seqs_dict(fastg_name, G):
-    """ returns a dictionary of sequences in graph 
+    """ returns a dictionary of sequences in graph
         where node names are keys and sequence strings
         are values; useful for saving memory when G
         is a subgraph (e.g., a component)
-    """ 
+    """
     fp = open(fastg_name, 'r')
     seqs = {}
     for name,seq,qual in readfq(fp):
@@ -90,7 +95,7 @@ def get_fastg_seqs_dict(fastg_name, G):
 def rc_node(node):
     """ gets reverse complement
         spades node label
-    """ 
+    """
     if node[-1] == "'": return node[:-1]
     else: return node + "'"
 
@@ -110,7 +115,7 @@ def update_node_coverage(G, node, new_cov):
     """
     if node not in G.nodes(): # nothing to be done, perhaps already removed
         return
-    if new_cov == 0: 
+    if new_cov == 0:
         G.remove_node(node)
         if rc_node(node) in G.nodes():
             G.remove_node(rc_node(node))
@@ -121,17 +126,18 @@ def update_node_coverage(G, node, new_cov):
 def get_spades_base_mass(G, name):
     length = get_length_from_spades_name(name)
     coverage = get_cov_from_spades_name_and_graph(name,G)
+    if coverage <= 0.0: coverage = 1.0/float(length) # ensure no division by zero, consider more principled way to do this
     return length * coverage
 
 def get_seq_from_path(path, seqs, max_k_val=55, cycle=True):
     """ retrieves sequence from a path;
-        instead of specifying cycles by having the first and 
+        instead of specifying cycles by having the first and
         last node be equal, the user must decide if a cycle is
         the intent to avoid redundant k-mers at the ends
     """
     start = seqs[path[0]]
     if len(path)==1:
-        if cycle: 
+        if cycle:
             return start[max_k_val:]
         else:
             return start
@@ -152,7 +158,7 @@ def get_node_cnts_hist(path):
     d = {}
     for p in path:
         # always count based on positive node
-        pos_name = p if (p[-1]!="'") else p[:-1]    
+        pos_name = p if (p[-1]!="'") else p[:-1]
         d[pos_name] = d.get(pos_name,0) + 1
     return d
 
@@ -194,7 +200,7 @@ def get_total_path_mass(path,G):
         get_cov_from_spades_name_and_graph(p,G) for p in path])
 
 def get_long_self_loops(G, min_length, seqs):
-    """ returns set of self loop nodes paths that are longer 
+    """ returns set of self loop nodes paths that are longer
         than min length; removes those and short self loops
         from G
     """
@@ -205,9 +211,11 @@ def get_long_self_loops(G, min_length, seqs):
         nd_path = (nd,)
         if len(get_seq_from_path(nd_path, seqs)) >= min_length \
         and (rc_node(nd),) not in self_loops:
-            self_loops.add(nd_path)                
-#############	
-	else: print 'Removing short self loop:' + nd[0] #########
+            self_loops.add(nd_path)
+#############
+            logger.info("Added path: %s  - long self loop" % nd)
+#        elif (rc_node(nd,)) not in self_loops:
+#            logger.info('\tRemoving short self loop: %s' % nd) #########
         to_remove.append(nd)
 
     for nd in to_remove:
@@ -215,8 +223,8 @@ def get_long_self_loops(G, min_length, seqs):
     return self_loops
 
 def get_unoriented_sorted_str(path):
-    """ creates unique, orientation-oblivious string representation of path, 
-        used to make sure node covered whenever rc of node is; 
+    """ creates unique, orientation-oblivious string representation of path,
+        used to make sure node covered whenever rc of node is;
         lets us avoid issue of rc of node having different weight than node
     """
     all_rc_path = []
@@ -228,8 +236,8 @@ def get_unoriented_sorted_str(path):
 def enum_high_mass_shortest_paths(G, seen_paths=None):
     """ given component subgraph, returns list of paths that
         - is non-redundant (includes) no repeats of same cycle
-        - includes all shortest paths starting at each node n (assigning 
-        node weights to be 1/(length * coverage)) to each of 
+        - includes all shortest paths starting at each node n (assigning
+        node weights to be 1/(length * coverage)) to each of
         its predecessors, and returning to n
     """
     if seen_paths == None:
@@ -242,11 +250,25 @@ def enum_high_mass_shortest_paths(G, seen_paths=None):
     for p in seen_paths:
         unq_sorted_paths.add(p)
     paths = []
+
+    logger.info("Getting edge weights")####################################################################
+
     # use add_edge to assign edge weights to be 1/mass of starting node
     for e in G.edges():
         G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
 
+######################################
+    # edge weights on edges (v,x) are -log(\sum_u w(v,u))
+#    for n in nodes:
+#        outgoing_edges = G.edges(n)
+#        norm_factor = sum([o.cost for o in outgoing_edges])
+#        for e in outgoing_edges:
+#            G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e.cost)) ############
+
     for node in nodes:
+
+	logger.info("Paths to node: %s" % node)##############################################################
+
         # if node[-1] == "'": continue
         for pred in G.predecessors(node):
             # needed because some nodes removed on updates
@@ -258,26 +280,26 @@ def enum_high_mass_shortest_paths(G, seen_paths=None):
             except nx.exception.NetworkXNoPath:
                 continue
 
-            
+
             # below: create copy of path with each node as rc version
-            # use as unique representation of a path and rc of its whole            
+            # use as unique representation of a path and rc of its whole
             unoriented_sorted_path_str = get_unoriented_sorted_str(path)
 
             # here we avoid considering cyclic rotations of identical paths
-            # by sorting their string representations (all_rc_path above) 
+            # by sorting their string representations (all_rc_path above)
             # and comparing against the set already stored
             if unoriented_sorted_path_str not in unq_sorted_paths:
                 unq_sorted_paths.add(unoriented_sorted_path_str)
                 paths.append(tuple(path))
-    
+
     return paths
 
 def get_non_repeat_nodes(G, path):
     """ returns a list of all non-repeat (in degree and out-degree
         == 1) nodes in a path; if there are no such nodes,
         returns an empty list
-        NB: G input should be whole graph, not specific SCC, to avoid 
-        disregarding isolated nodes  
+        NB: G input should be whole graph, not specific SCC, to avoid
+        disregarding isolated nodes
     """
     sing_nodes = []
     for nd in path:
@@ -286,8 +308,8 @@ def get_non_repeat_nodes(G, path):
     return sing_nodes
 
 
-def get_spades_type_name(count, path, seqs, G, cov=None):
-    path_len = len(get_seq_from_path(path,seqs))
+def get_spades_type_name(count, path, seqs, max_k_val, G, cov=None):
+    path_len = len(get_seq_from_path(path,seqs,max_k_val))
     if cov==None:
         cov = get_total_path_mass(path,G)/float(path_len)
     info = ["RNODE", str(count+1), "length", str(path_len),
@@ -301,7 +323,7 @@ def get_contigs_of_mates(node, bamfile, G):
     """
     mate_tigs = set([])
     if node[-1] == "'": node=node[:-1]
-    try:    
+    try:
         for hit in bamfile.fetch(node):
             nref = bamfile.getrname(hit.next_reference_id)
             if nref != node:
@@ -311,7 +333,7 @@ def get_contigs_of_mates(node, bamfile, G):
         pass
     source_name = node #re.sub('NODE_','EDGE_', node)
 
-    # print "before removal", mate_tigs
+#    print "before removal", mate_tigs
     to_remove = set([])
     for nd in mate_tigs:
         # flip name from "NODE_" prefix back to "EDGE_"
@@ -321,8 +343,8 @@ def get_contigs_of_mates(node, bamfile, G):
         (not G.has_node(nd_name)):
             to_remove.add(nd)
         # see if nd reachable by node or vice-versa
-        # try both flipping to rc and switching source and target    
-        elif not any([nx.has_path(G, source_name, nd_name), nx.has_path(G, rc_node(source_name),nd_name), 
+        # try both flipping to rc and switching source and target
+        elif not any([nx.has_path(G, source_name, nd_name), nx.has_path(G, rc_node(source_name),nd_name),
           nx.has_path(G, nd_name, source_name), nx.has_path(G, nd_name, rc_node(source_name))]):
             to_remove.add(nd)
     mate_tigs -= to_remove
@@ -331,24 +353,29 @@ def get_contigs_of_mates(node, bamfile, G):
     return mate_tigs
 
 def is_good_cyc(path, G, bamfile):
-    """ check all non-repeat nodes only have mates 
+    """ check all non-repeat nodes only have mates
         mapping to contigs in the cycle, ignoring mappings
         to isolated nodes or non-reachable nodes
     """
+
     sing_nodes = get_non_repeat_nodes(G,path)
-    # print sing_nodes
+    logger.info("Checking path: %s", path) #######################
     for nd in sing_nodes:
         mate_tigs = get_contigs_of_mates(nd, bamfile, G)  #re.sub('EDGE_', 'NODE_' ,nd), bamfile, G)
-        # print mate_tigs
+
         # mate_tigs_fixed_names = [re.sub('NODE_','EDGE_', x) for x in mate_tigs]
         # print mate_tigs_fixed_names
-        # need to check against F and R versions of path nodes 
+        # need to check against F and R versions of path nodes
+#######################
+        logger.info("\tNode: %s" % nd)
+        logger.info("\t\tMates: %s" % ", ".join(mate_tigs)) #####################
         in_path = [x in path for x in mate_tigs] #_fixed_names]
         # print in_path
         path_rc = [rc_node(x) for x in path]
         in_rc_path = [x in path_rc for x in mate_tigs] #_fixed_names]
         # print in_rc_path
         if any([ (not in_path[i] and not in_rc_path[i]) for i in range(len(mate_tigs))]):
+#####################
+    	    logger.info("Mate not in path")   #############
             return False
     return True
-

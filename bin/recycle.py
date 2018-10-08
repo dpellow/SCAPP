@@ -3,6 +3,7 @@
 import argparse, os
 from recyclelib.utils import *
 import pysam
+import logging
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
@@ -74,14 +75,21 @@ if __name__ == '__main__':
     f_cyc_paths = open(cycs_ofile, 'w')
     bamfile = pysam.AlignmentFile(args.bam)
     ISO = args.iso
-
+##############
+    logfile = root+ext.replace(".fastg", ".log")
+    logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
+    logger = logging.getLogger("recycle_logger")
+#    logger.setLevel(logging.info)
+#    fh = logging.FileHandler(logfile)
+#    logger.addHandler(fh)
     ###################################
     # graph processing begins
 
 
     G = get_fastg_digraph(fastg)
-#################
-    print "Isolates: " + ' '.join(list(nx.isolates(G))) ###############
+####################
+#    logger.info("Removing isolate nodes: %s" % ", ".join(list(nx.isolates(G))))######
+
     G.remove_nodes_from(list(nx.isolates(G)))
 
     cov_vals = [get_cov_from_spades_name(n) for n in G.nodes()]
@@ -93,7 +101,8 @@ if __name__ == '__main__':
         thresh = np.percentile(cov_vals, 95)
     else:
         thresh = np.percentile(cov_vals, 75)
-
+#######
+    logger.info("Coverage threshold:%4f" % thresh) #################
     print(MED_COV, STD_COV, thresh)
     path_count = 0
     # gets set of long simple loops, removes short
@@ -106,7 +115,7 @@ if __name__ == '__main__':
 
     for nd in long_self_loops:
         name = get_spades_type_name(path_count, nd,
-            SEQS, G, get_cov_from_spades_name(nd[0]))
+            SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
         final_paths_dict[name] = nd
         path_count += 1
 
@@ -117,8 +126,12 @@ if __name__ == '__main__':
 
     ###################################
     # iterate through SCCs looking for cycles
-    for c in comps:
-        # check if any nodes in comp in visited nodes
+###########################
+#    for c in comps:
+    for c in sorted(comps,key=len):
+	logger.info("Next comp")#########################################################################
+
+	# check if any nodes in comp in visited nodes
         # if so continue
         for node in c.nodes():
             if c in VISITED_NODES:
@@ -128,7 +141,7 @@ if __name__ == '__main__':
             redundant = False
             continue # have seen the RC version of component
         COMP = c.copy()
-
+#############################
         # initialize shortest path set considered
         paths = enum_high_mass_shortest_paths(COMP)
 
@@ -180,8 +193,13 @@ if __name__ == '__main__':
                     and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
                     ):
                     print(curr_path)
+##################################
+                    logger.info("Added path %s" % ", ".join(curr_path))
+                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
                     non_self_loops.add(get_unoriented_sorted_str(curr_path))
-                    name = get_spades_type_name(path_count, curr_path, SEQS, COMP)
+                    name = get_spades_type_name(path_count, curr_path, SEQS, max_k, COMP)
                     # covs = [get_cov_from_spades_name_and_graph(p,COMP) for p in curr_path]
                     covs = get_path_covs(curr_path,COMP)
                     print("before", covs)
@@ -192,7 +210,12 @@ if __name__ == '__main__':
                     print("after", get_path_covs(curr_path,COMP))
                     final_paths_dict[name] = curr_path
 #######################
-		else: print "Did not add: ", curr_path ###########
+                else:
+                    logger.info("Did not add path: %s" % ", ".join(curr_path))
+                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
+
                 # recalculate paths on the component
                 print(len(COMP.nodes()), " nodes remain in component\n")
 
