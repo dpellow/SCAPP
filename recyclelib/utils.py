@@ -5,6 +5,7 @@ import math ###############################
 import networkx as nx
 import re, pysam
 import logging
+import multiprocessing
 
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 ######################
@@ -43,6 +44,20 @@ def readfq(fp): # this is a generator function
             if last: # reach EOF before reading enough quality
                 yield name, seq, None # yield a fasta record instead
                 break
+
+
+def get_node_scores(scores_file,G):
+    """ Write the PlasFlow scores into each node in the graph
+    """
+    scores = {}
+    with open(scores_file) as f:
+        for line in f:
+            split = line.strip().split()
+            scores[split[0]] = float(split[1])
+    for nd in G.nodes():
+        G.add_node(nd, score=scores[nd])
+
+
 
 def rc_seq(dna):
     rev = reversed(dna)
@@ -208,6 +223,7 @@ def get_long_self_loops(G, min_length, seqs):
     to_remove = []
 
     for nd in G.nodes_with_selfloops():
+#TODO: Consider only doing this for isolated self-loops ?
         nd_path = (nd,)
         if len(get_seq_from_path(nd_path, seqs)) >= min_length \
         and (rc_node(nd),) not in self_loops:
@@ -222,6 +238,19 @@ def get_long_self_loops(G, min_length, seqs):
         update_node_coverage(G, nd, 0)
     return self_loops
 
+def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
+    """ Remove the long nodes that are predicted to likely be chromosomal
+    """
+    to_remove = []
+    for nd in G.nodes():
+        if get_length_from_spades_name(nd) > len_thresh and \
+            G.node[nd]['score']<score_thresh:
+            to_remove.append(nd)
+    print "Removing {} nodes".format(len(to_remove))
+    G.remove_nodes_from(to_remove)
+    logger.info("Removed %d long likely chromosomal nodes" % len(to_remove))
+
+
 def get_unoriented_sorted_str(path):
     """ creates unique, orientation-oblivious string representation of path,
         used to make sure node covered whenever rc of node is;
@@ -233,7 +262,7 @@ def get_unoriented_sorted_str(path):
         all_rc_path.append(p)
     return "".join(sorted(all_rc_path))
 
-def enum_high_mass_shortest_paths(G, seen_paths=None):
+def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
     """ given component subgraph, returns list of paths that
         - is non-redundant (includes) no repeats of same cycle
         - includes all shortest paths starting at each node n (assigning
@@ -255,19 +284,26 @@ def enum_high_mass_shortest_paths(G, seen_paths=None):
 
     # use add_edge to assign edge weights to be 1/mass of starting node
     for e in G.edges():
-        G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
+        #######################################################
+        if use_scores:
+            G.add_edge(e[0], e[1], cost = (1.-G.node[e[0]]['score'])/get_spades_base_mass(G, e[0]))
+        else:
+            G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
+    #    G.add_edge(e[0], e[1], cost = math.log(get_spades_base_mass(G, e[0])))
+        ################################
 
 ######################################
     # edge weights on edges (v,x) are -log(\sum_u w(v,u))
 #    for n in nodes:
-#        outgoing_edges = G.edges(n)
-#        norm_factor = sum([o.cost for o in outgoing_edges])
+#        outgoing_edges = G.edges(n,data=True)
+#        norm_factor = sum([o[2]['cost'] for o in outgoing_edges])
 #        for e in outgoing_edges:
-#            G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e.cost)) ############
+#            G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e[2]['cost'])) ############
+############################################
 
     for node in nodes:
 
-	logger.info("Paths to node: %s" % node)##############################################################
+	logger.info("%s: Paths to node: %s" % (multiprocessing.current_process().name, node))##############################################################
 
         # if node[-1] == "'": continue
         for pred in G.predecessors(node):
@@ -291,6 +327,7 @@ def enum_high_mass_shortest_paths(G, seen_paths=None):
             if unoriented_sorted_path_str not in unq_sorted_paths:
                 unq_sorted_paths.add(unoriented_sorted_path_str)
                 paths.append(tuple(path))
+                logger.info("%s: Path: %s" % (multiprocessing.current_process().name, path))##############################################################
 
     return paths
 
@@ -366,16 +403,115 @@ def is_good_cyc(path, G, bamfile):
         # mate_tigs_fixed_names = [re.sub('NODE_','EDGE_', x) for x in mate_tigs]
         # print mate_tigs_fixed_names
         # need to check against F and R versions of path nodes
-#######################
+
         logger.info("\tNode: %s" % nd)
-        logger.info("\t\tMates: %s" % ", ".join(mate_tigs)) #####################
-        in_path = [x in path for x in mate_tigs] #_fixed_names]
+        logger.info("\t\tMates: %s" % ", ".join(mate_tigs))
+        in_path = [x in path for x in mate_tigs]
         # print in_path
         path_rc = [rc_node(x) for x in path]
-        in_rc_path = [x in path_rc for x in mate_tigs] #_fixed_names]
+        in_rc_path = [x in path_rc for x in mate_tigs]
         # print in_rc_path
         if any([ (not in_path[i] and not in_rc_path[i]) for i in range(len(mate_tigs))]):
-#####################
-    	    logger.info("Mate not in path")   #############
+    	    logger.info("Mate not in path")
             return False
     return True
+
+#########################
+#TODO: calculate SEQS only for the component
+#TODO: get rid of G and use COMP
+# debugging - seem to be missing node in COMP??
+def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores=False):
+    """ run recycler for a single component of the graph
+        use multiprocessing to process components in parallel
+    """
+    proc_name = multiprocessing.current_process().name
+    bamfile = pysam.AlignmentFile(bampath)
+    while True:
+        COMP = job_queue.get()
+        if COMP is None:
+            print proc_name + ' is done'
+            job_queue.task_done()
+            break # done process
+
+        # initialize shortest path set considered
+        paths = enum_high_mass_shortest_paths(COMP,use_scores)
+
+        # peeling - iterate until no change in path set from
+        # one iteration to next
+
+        last_path_count = 0
+        last_node_count = 0
+
+
+        path_count = 0
+        non_self_loops = set([])
+        paths_set = set([]) #the set of paths found
+        # continue as long as you either removed a low mass path
+        # from the component or added a new path to final paths
+        while(path_count!=last_path_count or\
+            len(COMP.nodes())!=last_node_count):
+
+            last_node_count = len(COMP.nodes())
+            last_path_count = path_count
+
+            if(len(paths)==0): break
+
+            # using initial set of paths or set from last iteration
+            # sort the paths by CV and test the lowest CV path for removal
+            # need to use lambda because get_cov needs 2 parameters
+
+            # make tuples of (CV, path)
+            path_tuples = []
+            for p in paths:
+                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
+
+            # sort in ascending CV order
+            path_tuples.sort(key=lambda path: path[0])
+
+            curr_path = path_tuples[0][1]
+            # print paths
+            # print curr_path
+            if get_unoriented_sorted_str(curr_path) not in non_self_loops:
+                path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k)
+
+                ## only report to file if long enough and good
+                ## first good case - paired end reads on non-repeat nodes map on cycle
+                ## typical or low coverage level
+                ## second good case - high coverage (pairs may map outside due to high chimericism),
+                ## near constant coverage level
+                if (
+                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
+                    and is_good_cyc(curr_path,G,bamfile) and \
+                    get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
+                    ) or \
+                (
+                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
+                    and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
+                    ):
+                    print(curr_path)
+
+                    logger.info("Added path %s" % ", ".join(curr_path))
+                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
+                    non_self_loops.add(get_unoriented_sorted_str(curr_path))
+
+                    update_path_coverage_vals(curr_path, COMP, SEQS)
+                    path_count += 1
+                    paths_set.add(curr_path)
+
+                else:
+                    logger.info("%s: Did not add path: %s" % (proc_name, ", ".join(curr_path)))
+                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
+
+                # recalculate paths on the component
+                print(proc_name + ': ' + str(len(COMP.nodes())), " nodes remain in component\n")
+
+                paths = enum_high_mass_shortest_paths(COMP,use_scores,non_self_loops)
+
+        job_queue.task_done()
+        result_queue.put(paths_set)
+    #end while
+    return

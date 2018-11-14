@@ -4,6 +4,7 @@ import argparse, os
 from recyclelib.utils import *
 import pysam
 import logging
+import multiprocessing
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
@@ -38,6 +39,14 @@ def parse_user_input():
         help='Output directory',
         required=False, type=str
         )
+    parser.add_argument('-p','--num_processes',
+        help='Number of processes to use',
+        required=False, type=int, default=1
+        )
+    parser.add_argument('-s','--scores',
+            help='Contig plasmid scores file',
+            required=False, type=str
+        )
     return parser.parse_args()
 
 
@@ -50,13 +59,17 @@ if __name__ == '__main__':
     ###################################
     # read in fastg, load graph, create output handle
     args = parse_user_input()
+    num_procs = args.num_processes
     fastg = args.graph
     max_CV = args.max_CV
     max_k = args.max_k
     min_length = args.length
     fp = open(fastg, 'r')
     files_dir = os.path.dirname(fp.name)
-
+    if args.scores:
+        scores_file = args.scores
+        use_scores = True
+    else: use_scores = False
     # output 1 - fasta of sequences
     if args.output_dir:
         if not os.path.exists(args.output_dir):
@@ -73,24 +86,21 @@ if __name__ == '__main__':
     # path, coverage levels when path is added
     cycs_ofile = root + ext.replace(".fastg", ".cycs.paths_w_cov.txt")
     f_cyc_paths = open(cycs_ofile, 'w')
-    bamfile = pysam.AlignmentFile(args.bam)
+    bampath = args.bam
     ISO = args.iso
-##############
+
     logfile = root+ext.replace(".fastg", ".log")
     logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
     logger = logging.getLogger("recycle_logger")
-#    logger.setLevel(logging.info)
-#    fh = logging.FileHandler(logfile)
-#    logger.addHandler(fh)
-    ###################################
-    # graph processing begins
 
+    # graph processing begins
 
     G = get_fastg_digraph(fastg)
 ####################
 #    logger.info("Removing isolate nodes: %s" % ", ".join(list(nx.isolates(G))))######
 
     G.remove_nodes_from(list(nx.isolates(G)))
+######### NOTE: if don't require circular path, should leave long isolates in
 
     cov_vals = [get_cov_from_spades_name(n) for n in G.nodes()]
     MED_COV = np.median(cov_vals)
@@ -101,16 +111,22 @@ if __name__ == '__main__':
         thresh = np.percentile(cov_vals, 95)
     else:
         thresh = np.percentile(cov_vals, 75)
-#######
-    logger.info("Coverage threshold:%4f" % thresh) #################
+
+    logger.info("Coverage threshold:%4f" % thresh)
     print(MED_COV, STD_COV, thresh)
     path_count = 0
+    SEQS = get_fastg_seqs_dict(fastg,G)
     # gets set of long simple loops, removes short
     # simple loops from graph
-    SEQS = get_fastg_seqs_dict(fastg,G)
     long_self_loops = get_long_self_loops(G, min_length, SEQS)
-    non_self_loops = set([])
-    VISITED_NODES = set([]) # used to avoid problems due to RC nodes we may have removed
+
+#####################
+    # add a score to every node, remove long nodes that are most probably chrom.
+    if use_scores:
+        get_node_scores(scores_file,G)
+        remove_hi_confidence_chromosome(G)
+
+#####################
     final_paths_dict = {}
 
     for nd in long_self_loops:
@@ -119,125 +135,78 @@ if __name__ == '__main__':
         final_paths_dict[name] = nd
         path_count += 1
 
-    #############################
-    num_comps = 0#############################
-
+#    comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
+#   #below function is deprecated in nx 2.1....
     comps = nx.strongly_connected_component_subgraphs(G)
     COMP = nx.DiGraph()
-    redundant = False
-    print("================== path, coverage levels when added ====================")
 
     ###################################
     # iterate through SCCs looking for cycles
 ###########################
+
+    # set up the multiprocessing #########################################
+    job_queue = multiprocessing.JoinableQueue()
+    result_queue = multiprocessing.Queue()
+    workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores)) for i in xrange(num_procs)]
+    for w in workers:
+        w.daemon = True
+        w.start()
+    njobs = 0
+    print("================== path, coverage levels when added ====================")
+
 #    for c in comps:
-    for c in sorted(comps,key=len):
+    VISITED_NODES = set([]) # used to avoid problems due to RC components
+    redundant = False
+    for c in sorted(comps,key=len,reverse=True): # descending order - schedule large components first ######
         logger.info("Next comp")#########################################################################
 
 	# check if any nodes in comp in visited nodes
         # if so continue
         for node in c.nodes():
-            if c in VISITED_NODES:
-                redundant = True
-                break
+             if node in VISITED_NODES: # I assume the below is an error?
+        #     if c in VISITED_NODES:
+                 redundant = True
+                 break
         if redundant:
-            redundant = False
-            continue # have seen the RC version of component
+             redundant = False
+             continue # have seen the RC version of component
         COMP = c.copy()
-        num_comps += 1
-#############################
-        # initialize shortest path set considered
-        paths = enum_high_mass_shortest_paths(COMP)
 
-        # peeling - iterate until no change in path set from
-        # one iteration to next
-
-        last_path_count = 0
-        last_node_count = 0
-        # continue as long as you either removed a low mass path
-        # from the component or added a new path to final paths
-        while(path_count!=last_path_count or\
-            len(COMP.nodes())!=last_node_count):
-
-            last_node_count = len(COMP.nodes())
-            last_path_count = path_count
-
-            if(len(paths)==0): break
-
-            # using initial set of paths or set from last iteration
-            # sort the paths by CV and test the lowest CV path for removal
-            # need to use lambda because get_cov needs 2 parameters
-
-            # make tuples of (CV, path)
-            path_tuples = []
-            for p in paths:
-                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
-
-            # sort in ascending CV order
-            path_tuples.sort(key=lambda path: path[0])
-
-            curr_path = path_tuples[0][1]
-            # print paths
-            # print curr_path
-            if get_unoriented_sorted_str(curr_path) not in non_self_loops:
-                path_mean, _ = get_path_mean_std(curr_path, G, SEQS, max_k_val=max_k)
-
-                ## only report to file if long enough and good
-                ## first good case - paired end reads on non-repeat nodes map on cycle
-                ## typical or low coverage level
-                ## second good case - high coverage (pairs may map outside due to high chimericism),
-                ## near constant coverage level
-                if (
-                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
-                    and is_good_cyc(curr_path,G,bamfile) and \
-                    get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
-                    ) or \
-                (
-                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
-                    and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
-                    ):
-                    print(curr_path)
-##################################
-                    logger.info("Added path %s" % ", ".join(curr_path))
-                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
-                    non_self_loops.add(get_unoriented_sorted_str(curr_path))
-                    name = get_spades_type_name(path_count, curr_path, SEQS, max_k, COMP)
-                    # covs = [get_cov_from_spades_name_and_graph(p,COMP) for p in curr_path]
-                    covs = get_path_covs(curr_path,COMP)
-                    print("before", covs)
-                    f_cyc_paths.write(name + "\n" +str(curr_path)+ "\n" + str(covs)
-                        + "\n" + str([get_num_from_spades_name(p) for p in curr_path]) + "\n")
-                    update_path_coverage_vals(curr_path, COMP, SEQS)
-                    path_count += 1
-                    print("after", get_path_covs(curr_path,COMP))
-                    final_paths_dict[name] = curr_path
-#######################
-                else:
-                    logger.info("Did not add path: %s" % ", ".join(curr_path))
-                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
-
-                # recalculate paths on the component
-                print(len(COMP.nodes()), " nodes remain in component\n")
-
-                paths = enum_high_mass_shortest_paths(COMP,non_self_loops)
+        job_queue.put(COMP)
         rc_nodes = [rc_node(n) for n in COMP.nodes()]
         VISITED_NODES.update(COMP.nodes())
         VISITED_NODES.update(rc_nodes)
+        njobs+=1
+
+    for i in xrange(num_procs):
+        job_queue.put(None) # signal that the jobs are all done - one for each process
+    job_queue.join() # wait till all processes return
+####################################
 
     # done peeling
     # print final paths to screen
+    print "%d jobs" % njobs
     print("==================final_paths identities after updates: ================")
 
-    # write out sequences to fasta
+    # write out sequences to fasta - long self-loops
     for p in final_paths_dict.keys():
         seq = get_seq_from_path(final_paths_dict[p], SEQS, max_k_val=max_k)
         print(final_paths_dict[p])
         print(" ")
         if len(seq)>=min_length:
             f_cycs_fasta.write(">" + p + "\n" + seq + "\n")
-
-    print "n comps: " + str(num_comps)
+##################
+    ## All processes done
+    ## Read results queues of each
+    for i in xrange(njobs):
+        paths_set = result_queue.get()
+        for p in paths_set:
+            name = get_spades_type_name(path_count, p, SEQS, max_k, G)
+            covs = get_path_covs(p,G)
+            seq = get_seq_from_path(p, SEQS, max_k_val=max_k)
+            print(p)
+            if len(seq)>=min_length:
+                f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
+                f_cyc_paths.write(name + "\n" +str(p)+ "\n" + str(covs)
+                    + "\n" + str([get_num_from_spades_name(n) for n in p]) + "\n")
+            path_count += 1
