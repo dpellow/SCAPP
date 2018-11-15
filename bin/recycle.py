@@ -158,7 +158,6 @@ if __name__ == '__main__':
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
     for c in sorted(comps,key=len,reverse=True): # descending order - schedule large components first ######
-        logger.info("Next comp")#########################################################################
 
 	# check if any nodes in comp in visited nodes
         # if so continue

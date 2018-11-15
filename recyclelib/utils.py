@@ -246,6 +246,8 @@ def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
         if get_length_from_spades_name(nd) > len_thresh and \
             G.node[nd]['score']<score_thresh:
             to_remove.append(nd)
+            to_remove.append(rc_node(nd)) ####################
+            ############################# TODO: IS this really necessary?
     print "Removing {} nodes".format(len(to_remove))
     G.remove_nodes_from(to_remove)
     logger.info("Removed %d long likely chromosomal nodes" % len(to_remove))
@@ -286,7 +288,7 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
     for e in G.edges():
         #######################################################
         if use_scores:
-            G.add_edge(e[0], e[1], cost = (1.-G.node[e[0]]['score'])/get_spades_base_mass(G, e[0]))
+            G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
         else:
             G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
     #    G.add_edge(e[0], e[1], cost = math.log(get_spades_base_mass(G, e[0])))
@@ -303,7 +305,7 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
 
     for node in nodes:
 
-	logger.info("%s: Paths to node: %s" % (multiprocessing.current_process().name, node))##############################################################
+#	logger.info("%s: Paths to node: %s" % (multiprocessing.current_process().name, node))##############################################################
 
         # if node[-1] == "'": continue
         for pred in G.predecessors(node):
@@ -327,7 +329,6 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
             if unoriented_sorted_path_str not in unq_sorted_paths:
                 unq_sorted_paths.add(unoriented_sorted_path_str)
                 paths.append(tuple(path))
-                logger.info("%s: Path: %s" % (multiprocessing.current_process().name, path))##############################################################
 
     return paths
 
@@ -432,10 +433,10 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             print proc_name + ' is done'
             job_queue.task_done()
             break # done process
-
+        logger.info("%s: Next comp" % (multiprocessing.current_process().name))
         # initialize shortest path set considered
         paths = enum_high_mass_shortest_paths(COMP,use_scores)
-
+        logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
         # peeling - iterate until no change in path set from
         # one iteration to next
 
@@ -469,8 +470,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             path_tuples.sort(key=lambda path: path[0])
 
             curr_path = path_tuples[0][1]
-            # print paths
-            # print curr_path
+            logger.info("%s: Lowest CV path: %s, CV: %f, Total mass: %f" % (multiprocessing.current_process().name, str(curr_path),\
+                        path_tuples[0][0],get_total_path_mass(curr_path,G)))
+
             if get_unoriented_sorted_str(curr_path) not in non_self_loops:
                 path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k)
 
@@ -510,6 +512,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 print(proc_name + ': ' + str(len(COMP.nodes())), " nodes remain in component\n")
 
                 paths = enum_high_mass_shortest_paths(COMP,use_scores,non_self_loops)
+                logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
 
         job_queue.task_done()
         result_queue.put(paths_set)
