@@ -464,7 +464,12 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             # make tuples of (CV, path)
             path_tuples = []
             for p in paths:
+                if len(get_seq_from_path(p, SEQS, max_k_val=max_k)) < min_length: ##############################
+                    continue ##################
                 path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
+
+            if(len(path_tuples)==0): break ##############################
+
 
             # sort in ascending CV order
             path_tuples.sort(key=lambda path: path[0])
@@ -482,12 +487,14 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 ## second good case - high coverage (pairs may map outside due to high chimericism),
                 ## near constant coverage level
                 if (
-                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
-                    and is_good_cyc(curr_path,G,bamfile) and \
+        ###################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
+        ###################            and is_good_cyc(curr_path,G,bamfile) and \
+                    is_good_cyc(curr_path,G,bamfile) and \
                     get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
                     ) or \
                 (
-                    len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
+        ##################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
+                    (path_mean > thresh) \
                     and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
                     ):
                     print(curr_path)
