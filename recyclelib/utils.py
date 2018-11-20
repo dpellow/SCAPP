@@ -178,7 +178,8 @@ def get_node_cnts_hist(path):
     return d
 
 def get_path_covs(path,G):
-    covs = [get_cov_from_spades_name_and_graph(n,G) for n in path]
+#############################
+    covs = [get_cov_from_spades_name_and_graph(n,G)/float(max(G.in_degree(n),G.out_degree(n))) for n in path] #################
     cnts = get_node_cnts_hist(path)
     for i in range(len(path)):
         p = path[i]
@@ -296,11 +297,11 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
 
 ######################################
     # edge weights on edges (v,x) are -log(\sum_u w(v,u))
-#    for n in nodes:
-#        outgoing_edges = G.edges(n,data=True)
-#        norm_factor = sum([o[2]['cost'] for o in outgoing_edges])
-#        for e in outgoing_edges:
-#            G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e[2]['cost'])) ############
+    # for n in nodes:
+    #     outgoing_edges = G.edges(n,data=True)
+    #     norm_factor = sum([o[2]['cost'] for o in outgoing_edges])
+    #     for e in outgoing_edges:
+    #         G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e[2]['cost'])) ############
 ############################################
 
     for node in nodes:
@@ -474,52 +475,56 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             # sort in ascending CV order
             path_tuples.sort(key=lambda path: path[0])
 
-            curr_path = path_tuples[0][1]
-            logger.info("%s: Lowest CV path: %s, CV: %f, Total mass: %f" % (multiprocessing.current_process().name, str(curr_path),\
-                        path_tuples[0][0],get_total_path_mass(curr_path,G)))
+            ####################################
+            for pt in path_tuples: ####################################
+            #curr_path = path_tuples[0][1]
+                curr_path = pt[1] ############ \t
+#######            logger.info("%s: Lowest CV path: %s, CV: %f, Total mass: %f" % (multiprocessing.current_process().name, str(curr_path),\
+        #########                path_tuples[0][0],get_total_path_mass(curr_path,G)))
 
-            if get_unoriented_sorted_str(curr_path) not in non_self_loops:
-                path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k)
+                if get_unoriented_sorted_str(curr_path) not in non_self_loops: ########## \t
+                    path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k) ########## \t
 
                 ## only report to file if long enough and good
                 ## first good case - paired end reads on non-repeat nodes map on cycle
                 ## typical or low coverage level
                 ## second good case - high coverage (pairs may map outside due to high chimericism),
                 ## near constant coverage level
-                if (
+                    if (   ################## \t
         ###################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
         ###################            and is_good_cyc(curr_path,G,bamfile) and \
-                    is_good_cyc(curr_path,G,bamfile) and \
-                    get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
-                    ) or \
-                (
+                        is_good_cyc(curr_path,G,bamfile) and \
+                        get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
+                        ) or \
+                        (
         ##################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
-                    (path_mean > thresh) \
-                    and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
+                        (path_mean > thresh) \
+                        and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
                     ):
-                    print(curr_path)
+                        print(curr_path)
 
-                    logger.info("Added path %s" % ", ".join(curr_path))
-                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
-                    non_self_loops.add(get_unoriented_sorted_str(curr_path))
+                        logger.info("Added path %s" % ", ".join(curr_path))
+                        logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                        logger.info("\tPath mean cov: %4f" % path_mean) ####################
+                        non_self_loops.add(get_unoriented_sorted_str(curr_path))
 
-                    update_path_coverage_vals(curr_path, COMP, SEQS)
-                    path_count += 1
-                    paths_set.add(curr_path)
+                        update_path_coverage_vals(curr_path, COMP, SEQS)
+                        path_count += 1
+                        paths_set.add(curr_path)
+                        ###############
+                        break ###################
 
-                else:
-                    logger.info("%s: Did not add path: %s" % (proc_name, ", ".join(curr_path)))
-                    logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                    logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                    logger.info("\tPath mean cov: %4f" % path_mean) ####################
+                    else:
+                        logger.info("%s: Did not add path: %s" % (proc_name, ", ".join(curr_path)))
+                        logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
+                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                        logger.info("\tPath mean cov: %4f" % path_mean) ####################
 
                 # recalculate paths on the component
-                print(proc_name + ': ' + str(len(COMP.nodes())), " nodes remain in component\n")
-
-                paths = enum_high_mass_shortest_paths(COMP,use_scores,non_self_loops)
-                logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
+            print(proc_name + ': ' + str(len(COMP.nodes())), " nodes remain in component\n")  ########## untabbed these!
+            paths = enum_high_mass_shortest_paths(COMP,use_scores,non_self_loops)
+            logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
 
         job_queue.task_done()
         result_queue.put(paths_set)
