@@ -165,7 +165,7 @@ def get_seq_from_path(path, seqs, max_k_val=55, cycle=True):
 
 def get_wgtd_path_coverage_CV(path, G, seqs, max_k_val=55):
     if len(path)< 2: return 0
-    mean, std = get_path_mean_std(path, G, seqs, max_k_val)
+    mean, std = get_path_mean_std(path, G, seqs, max_k_val,discount=True)
     if mean<=0: return 0
     return std/mean
 
@@ -177,9 +177,26 @@ def get_node_cnts_hist(path):
         d[pos_name] = d.get(pos_name,0) + 1
     return d
 
-def get_path_covs(path,G):
-#############################
-    covs = [get_cov_from_spades_name_and_graph(n,G)/float(max(G.in_degree(n),G.out_degree(n))) for n in path] #################
+#######################################
+def get_discounted_node_cov(node,path,G):
+    """ Return the coverage of the node, discounted by the coverage of neighbouring
+        nodes not in the path
+    """
+    pred_cov = sum([get_cov_from_spades_name_and_graph(p,G) for p in G.predecessors(node) if p not in path])
+    succ_cov = sum([get_cov_from_spades_name_and_graph(s,G) for s in G.successors(node) if s not in path])
+    avg_cov_discount = (pred_cov+succ_cov)/2.0
+    return max((get_cov_from_spades_name_and_graph(node,G)-avg_cov_discount),0.0)
+#########################################
+
+
+def get_path_covs(path,G,discount=False): ###############
+#############
+    if discount:
+        covs = [get_discounted_node_cov(n,path,G) for n in path] #################
+    else:
+        covs = [get_cov_from_spades_name_and_graph(n,G) for n in path]
+
+    # discount weight of nodes that path passes through multiple times
     cnts = get_node_cnts_hist(path)
     for i in range(len(path)):
         p = path[i]
@@ -189,9 +206,10 @@ def get_path_covs(path,G):
     return covs
 
 
-def get_path_mean_std(path, G, seqs, max_k_val=55):
+def get_path_mean_std(path, G, seqs, max_k_val=55,discount=True): ######################## TODO:
+    ###################################################################################### should this be True?
     # covs = np.array([get_cov_from_spades_name_and_graph(n,G) for n in path])
-    covs = get_path_covs(path,G)
+    covs = np.array(get_path_covs(path,G,discount))
     wgts = np.array([(get_length_from_spades_name(n)-max_k_val) for n in path])
     tot_len = len(get_seq_from_path(path, seqs, cycle=True))
     if tot_len<=0: return (0,0)
@@ -201,7 +219,7 @@ def get_path_mean_std(path, G, seqs, max_k_val=55):
     return (mean,std)
 
 def update_path_coverage_vals(path, G, seqs):
-    mean, _ = get_path_mean_std(path, G, seqs)
+    mean, _ = get_path_mean_std(path, G, seqs) ## NOTE: CAN WE STILL GUARANTEE CONVERGENCE WHEN DISCOUNTING COVERAGE ??!
     # covs = np.array([get_cov_from_spades_name_and_graph(n,G) for n in path])
     covs = get_path_covs(path,G)
     new_covs = covs - mean
@@ -247,12 +265,18 @@ def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
         if get_length_from_spades_name(nd) > len_thresh and \
             G.node[nd]['score']<score_thresh:
             to_remove.append(nd)
-            to_remove.append(rc_node(nd)) ####################
-            ############################# TODO: IS this really necessary?
-    print "Removing {} nodes".format(len(to_remove))
+            to_remove.append(rc_node(nd))
+    print "Removing {} nodes".format(len(set(to_remove)))
     G.remove_nodes_from(to_remove)
-    logger.info("Removed %d long likely chromosomal nodes" % len(to_remove))
+    logger.info("Removed %d long, likely chromosomal nodes" % len(set(to_remove)))
 
+def get_hi_conf_plasmids(G, len_thresh=10000, score_thresh=0.9):
+    """ Return a list of nodes that are likely plasmids
+    """
+    hi_conf_plasmids = [nd for nd in G.nodes() if (get_length_from_spades_name(nd) > len_thresh and \
+                        G.node[nd]['score'] > score_thresh)]
+    logger.info("Found %d long, likely plasmid nodes" % len(hi_conf_plasmids))
+    return hi_conf_plasmids
 
 def get_unoriented_sorted_str(path):
     """ creates unique, orientation-oblivious string representation of path,
@@ -283,17 +307,14 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
         unq_sorted_paths.add(p)
     paths = []
 
-    logger.info("Getting edge weights")####################################################################
+    logger.info("Getting edge weights")
 
     # use add_edge to assign edge weights to be 1/mass of starting node
     for e in G.edges():
-        #######################################################
         if use_scores:
             G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
         else:
             G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
-    #    G.add_edge(e[0], e[1], cost = math.log(get_spades_base_mass(G, e[0])))
-        ################################
 
 ######################################
     # edge weights on edges (v,x) are -log(\sum_u w(v,u))
@@ -306,32 +327,54 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
 
     for node in nodes:
 
-#	logger.info("%s: Paths to node: %s" % (multiprocessing.current_process().name, node))##############################################################
-
-        # if node[-1] == "'": continue
+        shortest_score = float("inf")
+        path = None
         for pred in G.predecessors(node):
-            # needed because some nodes removed on updates
-            if pred not in G: continue
-
             try:
-                path = nx.shortest_path(G, source=node,
-                    target=pred, weight='cost')
+                path_len = nx.shortest_path_length(G, source=node, target=pred, weight='cost')
+                if path_len < shortest_score:
+                    path = tuple(nx.shortest_path(G, source=node,target=pred, weight='cost'))
+                    shortest_score = path_len
             except nx.exception.NetworkXNoPath:
                 continue
+            if path is None: continue
 
+        # below: create copy of path with each node as rc version
+        # use as unique representation of a path and rc of its whole
+        unoriented_sorted_path_str = get_unoriented_sorted_str(path)
 
-            # below: create copy of path with each node as rc version
-            # use as unique representation of a path and rc of its whole
-            unoriented_sorted_path_str = get_unoriented_sorted_str(path)
-
-            # here we avoid considering cyclic rotations of identical paths
-            # by sorting their string representations (all_rc_path above)
-            # and comparing against the set already stored
-            if unoriented_sorted_path_str not in unq_sorted_paths:
-                unq_sorted_paths.add(unoriented_sorted_path_str)
-                paths.append(tuple(path))
+        # here we avoid considering cyclic rotations of identical paths
+        # by sorting their string representations (all_rc_path above)
+        # and comparing against the set already stored
+        if unoriented_sorted_path_str not in unq_sorted_paths:
+            unq_sorted_paths.add(unoriented_sorted_path_str)
+            paths.append(tuple(path))
 
     return paths
+
+
+
+def get_high_mass_shortest_path(node,G):
+    """ Return the shortest circular path back to node
+    """
+    #TODO: potentially add check for unique paths so that don't check same cycle
+    # twice if there are two potential plasmid nodes in it
+
+    for e in G.edges():
+        G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
+
+    shortest_score = float("inf")
+    path = None
+    for pred in G.predecessors(node):
+        try:
+            path_len = nx.shortest_path_length(G, source=node, target=pred, weight='cost')
+            if path_len < shortest_score:
+                path = tuple(nx.shortest_path(G, source=node,target=pred, weight='cost'))
+                shortest_score = path_len
+        except nx.exception.NetworkXNoPath:
+            continue
+
+    return path
 
 def get_non_repeat_nodes(G, path):
     """ returns a list of all non-repeat (in degree and out-degree
@@ -370,58 +413,65 @@ def get_contigs_of_mates(node, bamfile, G):
 
     except ValueError:
         pass
-    source_name = node #re.sub('NODE_','EDGE_', node)
+    source_name = node
 
 #    print "before removal", mate_tigs
     to_remove = set([])
     for nd in mate_tigs:
-        # flip name from "NODE_" prefix back to "EDGE_"
-        # differs between contigs set and graph node names
-        nd_name = nd #re.sub('NODE_','EDGE_', nd)
-        if (G.in_degree(nd_name)==0 and G.out_degree(nd_name)==0) or \
-        (not G.has_node(nd_name)):
+        if (G.in_degree(nd)==0 and G.out_degree(nd)==0) or \
+        (not G.has_node(nd)):
             to_remove.add(nd)
         # see if nd reachable by node or vice-versa
         # try both flipping to rc and switching source and target
         elif not any([nx.has_path(G, source_name, nd_name), nx.has_path(G, rc_node(source_name),nd_name),
-          nx.has_path(G, nd_name, source_name), nx.has_path(G, nd_name, rc_node(source_name))]):
+                nx.has_path(G, nd_name, source_name), nx.has_path(G, nd_name, rc_node(source_name))]):
             to_remove.add(nd)
     mate_tigs -= to_remove
-    # print "after removal", mate_tigs
 
     return mate_tigs
 
-def is_good_cyc(path, G, bamfile):
+#TODO: validate choice for ratio threshold
+def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.5):
     """ check all non-repeat nodes only have mates
-        mapping to contigs in the cycle, ignoring mappings
-        to isolated nodes or non-reachable nodes
+        mapping to contigs in the cycle
     """
 
     sing_nodes = get_non_repeat_nodes(G,path)
-    logger.info("Checking path: %s", path) #######################
+    tot_in_path = 0
+    tot_not_in_path = 0
     for nd in sing_nodes:
-        mate_tigs = get_contigs_of_mates(nd, bamfile, G)  #re.sub('EDGE_', 'NODE_' ,nd), bamfile, G)
-
-        # mate_tigs_fixed_names = [re.sub('NODE_','EDGE_', x) for x in mate_tigs]
-        # print mate_tigs_fixed_names
-        # need to check against F and R versions of path nodes
-
+        mate_tigs = get_contigs_of_mates(nd, bamfile, G)
+        # NOTE: ^ this only gets mates that are reachable from nd in G
         logger.info("\tNode: %s" % nd)
         logger.info("\t\tMates: %s" % ", ".join(mate_tigs))
-        in_path = [x in path for x in mate_tigs]
-        # print in_path
+
+        # need to check against F and R versions of path nodes
         path_rc = [rc_node(x) for x in path]
-        in_rc_path = [x in path_rc for x in mate_tigs]
-        # print in_rc_path
-        if any([ (not in_path[i] and not in_rc_path[i]) for i in range(len(mate_tigs))]):
-    	    logger.info("Mate not in path")
+        num_mates_in_path = sum([1 for x in mate_tigs if (x in path or x in path_rc)])
+        num_mates_not_in_path = len(mate_tigs)-num_mates_in_path
+        if num_mates_in_path < num_mates_not_in_path:
+            logger.info("Fewer mates in path than not")
+        tot_in_path += num_mates_in_path # Note, this double counts in-path mates
+        tot_not_in_path += num_mates_not_in_path
+
+    # avoid divide by zeros
+    if tot_not_in_path == 0: return True
+    elif tot_in_path == 0:
+        # TODO: different thresh for this case? or add this threshold in the other case too?
+        if float(tot_not_in_path)/float(len(sing_nodes)) > mate_ratio_thresh:
             return False
-    return True
+        else: return True
+
+    if float(tot_not_in_path)/(float(tot_in_path)/2.0) > mate_ratio_thresh:
+        logger.info("Too many mates not in path")
+        return False
+    else: return True
+
+
 
 #########################
 #TODO: calculate SEQS only for the component
 #TODO: get rid of G and use COMP
-# debugging - seem to be missing node in COMP??
 def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores=False):
     """ run recycler for a single component of the graph
         use multiprocessing to process components in parallel
@@ -434,20 +484,61 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             print proc_name + ' is done'
             job_queue.task_done()
             break # done process
-        logger.info("%s: Next comp" % (multiprocessing.current_process().name))
+        logger.info("%s: Next comp" % (proc_name))
         # initialize shortest path set considered
-        paths = enum_high_mass_shortest_paths(COMP,use_scores)
-        logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
-        # peeling - iterate until no change in path set from
-        # one iteration to next
+
+        path_count = 0
+        seen_unoriented_paths = set([])
+        paths_set = set([]) #the set of paths found
+
+        # first look for circular paths that start from hi confidence plasmid nodes
+        # TODO: implement own scoring function. Also consider plasmid-specific genes
+        if use_scores:
+            potential_plasmid_nodes = get_hi_conf_plasmids(COMP)
+            potential_plasmid_mass_tuples = [(get_spades_base_mass(COMP,nd),nd) for nd in potential_plasmid_nodes]
+            potential_plasmid_mass_tuples.sort(key = lambda n: n[0])
+            while potential_plasmid_mass_tuples: # could be removing other nodes from the list
+                top_node = potential_plasmid_mass_tuples.pop() # highest mass node
+                top_node_name = top_node[1]
+                path = get_high_mass_shortest_path(top_node_name,COMP)
+                if path is None: continue
+                # check coverage variation
+                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
+                logger.info("%s: Hi conf path: %s, CV: %4f" % (proc_name, str(path),path_CV))
+                #if path_CV <= (max_CV/len(path)) and is_good_cyc(path,G,bamfile): ####################
+                if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
+                    logger.info("%s: Added hi conf path %s" % (proc_name,str(path)))
+                #    logger.info("\tCV cutoff: %4f" % (max_CV/len(path)))
+
+                    # prevent checking nodes that have been removed
+                    # TODO: do this more efficiently
+                    # TODO: the right way to do this is just remove the top node and its RC
+                    #       and recalculate the masses and sort in each iteration
+                    i = 0
+                    while i < len(potential_plasmid_mass_tuples):
+                        if potential_plasmid_mass_tuples[i][1] in path or \
+                            rc_node(potential_plasmid_mass_tuples[i][1]) in path:
+                            potential_plasmid_mass_tuples.pop(i)
+                        else: i += 1
+
+                    seen_unoriented_paths.add(get_unoriented_sorted_str(path))
+                    update_path_coverage_vals(path, COMP, SEQS)
+                    path_count += 1
+                    paths_set.add(path)
+
+                else:
+                    logger.info("%s: Did not add hi-conf path: %s" % (proc_name, str(path)))
+                    #logger.info("%s: CV thresh: %4f" % (proc_name, max_CV/len(path)))######################
+
+        # 2nd step. Run Recycler algorithm that looks for circular high mass shortest
+        # paths and accept them as plasmid predictions if the coverages and mate pairs
+        # match the required thresholds
+        paths = enum_high_mass_shortest_paths(COMP,use_scores,seen_unoriented_paths)
+        logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
 
         last_path_count = 0
         last_node_count = 0
 
-
-        path_count = 0
-        non_self_loops = set([])
-        paths_set = set([]) #the set of paths found
         # continue as long as you either removed a low mass path
         # from the component or added a new path to final paths
         while(path_count!=last_path_count or\
@@ -458,73 +549,54 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
             if(len(paths)==0): break
 
-            # using initial set of paths or set from last iteration
-            # sort the paths by CV and test the lowest CV path for removal
-            # need to use lambda because get_cov needs 2 parameters
-
             # make tuples of (CV, path)
             path_tuples = []
             for p in paths:
-                if len(get_seq_from_path(p, SEQS, max_k_val=max_k)) < min_length: ##############################
-                    continue ##################
+                if len(get_seq_from_path(p, SEQS, max_k_val=max_k)) < min_length:
+                    seen_unoriented_paths.add(get_unoriented_sorted_str(p))
+                    continue
                 path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
 
-            if(len(path_tuples)==0): break ##############################
-
+            if(len(path_tuples)==0): break
 
             # sort in ascending CV order
             path_tuples.sort(key=lambda path: path[0])
 
-            ####################################
-            for pt in path_tuples: ####################################
-            #curr_path = path_tuples[0][1]
-                curr_path = pt[1] ############ \t
-#######            logger.info("%s: Lowest CV path: %s, CV: %f, Total mass: %f" % (multiprocessing.current_process().name, str(curr_path),\
-        #########                path_tuples[0][0],get_total_path_mass(curr_path,G)))
+            for pt in path_tuples:
+                curr_path = pt[1]
+                curr_path_CV = pt[0]
+                if get_unoriented_sorted_str(curr_path) not in seen_unoriented_paths:
+                    path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k)
 
-                if get_unoriented_sorted_str(curr_path) not in non_self_loops: ########## \t
-                    path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k) ########## \t
+                ## only report to file if low CV and matches mate pair info
+                    if (is_good_cyc(curr_path,G,bamfile) and \
+                        curr_path_CV <= (max_CV) \
+            #            curr_path_CV <= (max_CV/len(curr_path)) \ ################################33
 
-                ## only report to file if long enough and good
-                ## first good case - paired end reads on non-repeat nodes map on cycle
-                ## typical or low coverage level
-                ## second good case - high coverage (pairs may map outside due to high chimericism),
-                ## near constant coverage level
-                    if (   ################## \t
-        ###################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length \
-        ###################            and is_good_cyc(curr_path,G,bamfile) and \
-                        is_good_cyc(curr_path,G,bamfile) and \
-                        get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
-                        ) or \
-                        (
-        ##################            len(get_seq_from_path(curr_path, SEQS, max_k_val=max_k))>=min_length and (path_mean > thresh) \
-                        (path_mean > thresh) \
-                        and get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path))
+                    # TODO: try with or without this:   or ((path_mean > thresh) and \
+                    #        get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path)))
                     ):
                         print(curr_path)
 
                         logger.info("Added path %s" % ", ".join(curr_path))
-                        logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                        logger.info("\tPath mean cov: %4f" % path_mean) ####################
-                        non_self_loops.add(get_unoriented_sorted_str(curr_path))
+                        logger.info("\tCV: %4f" % curr_path_CV)
+#                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path))) ##############
+                        seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
 
                         update_path_coverage_vals(curr_path, COMP, SEQS)
                         path_count += 1
                         paths_set.add(curr_path)
-                        ###############
-                        break ###################
+                        break
 
                     else:
                         logger.info("%s: Did not add path: %s" % (proc_name, ", ".join(curr_path)))
-                        logger.info("\tCV: %4f" % get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k))
-                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
-                        logger.info("\tPath mean cov: %4f" % path_mean) ####################
+                        logger.info("\tCV: %4f" % curr_path_CV)
+#                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
 
                 # recalculate paths on the component
-            print(proc_name + ': ' + str(len(COMP.nodes())), " nodes remain in component\n")  ########## untabbed these!
-            paths = enum_high_mass_shortest_paths(COMP,use_scores,non_self_loops)
-            logger.info("%s: Shortest paths: %s" % (multiprocessing.current_process().name, str(paths)))
+            print proc_name + ': ' + str(len(COMP.nodes())) + " nodes remain in component"  ########## untabbed these!
+            paths = enum_high_mass_shortest_paths(COMP,use_scores,seen_unoriented_paths)
+            logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
 
         job_queue.task_done()
         result_queue.put(paths_set)

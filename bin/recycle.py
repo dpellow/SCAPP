@@ -116,17 +116,20 @@ if __name__ == '__main__':
     print(MED_COV, STD_COV, thresh)
     path_count = 0
     SEQS = get_fastg_seqs_dict(fastg,G)
-    # gets set of long simple loops, removes short
-    # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS)
 
 #####################
     # add a score to every node, remove long nodes that are most probably chrom.
     if use_scores:
         get_node_scores(scores_file,G)
         remove_hi_confidence_chromosome(G)
+        #TODO: take into account how to discount coverage of these nodes from their neighbours
 
 #####################
+
+    # gets set of long simple loops, removes short
+    # simple loops from graph
+    long_self_loops = get_long_self_loops(G, min_length, SEQS)
+
     final_paths_dict = {}
 
     for nd in long_self_loops:
