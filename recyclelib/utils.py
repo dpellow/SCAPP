@@ -337,7 +337,7 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
                     shortest_score = path_len
             except nx.exception.NetworkXNoPath:
                 continue
-            if path is None: continue
+        if path is None: continue
 
         # below: create copy of path with each node as rc version
         # use as unique representation of a path and rc of its whole
@@ -413,7 +413,6 @@ def get_contigs_of_mates(node, bamfile, G):
 
     except ValueError:
         pass
-    source_name = node
 
 #    print "before removal", mate_tigs
     to_remove = set([])
@@ -423,22 +422,26 @@ def get_contigs_of_mates(node, bamfile, G):
             to_remove.add(nd)
         # see if nd reachable by node or vice-versa
         # try both flipping to rc and switching source and target
-        elif not any([nx.has_path(G, source_name, nd_name), nx.has_path(G, rc_node(source_name),nd_name),
-                nx.has_path(G, nd_name, source_name), nx.has_path(G, nd_name, rc_node(source_name))]):
+        elif not any([nx.has_path(G, node, nd), nx.has_path(G, rc_node(node),nd),
+                nx.has_path(G, nd, node), nx.has_path(G, nd, rc_node(node))]):
             to_remove.add(nd)
     mate_tigs -= to_remove
 
     return mate_tigs
 
 #TODO: validate choice for ratio threshold
-def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.5):
+def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.3):
     """ check all non-repeat nodes only have mates
         mapping to contigs in the cycle
     """
 
     sing_nodes = get_non_repeat_nodes(G,path)
-    tot_in_path = 0
-    tot_not_in_path = 0
+#############    tot_in_path = 0
+#############    tot_not_in_path = 0
+
+#######################
+    non_path_dominated_nodes = 0
+#######################
     for nd in sing_nodes:
         mate_tigs = get_contigs_of_mates(nd, bamfile, G)
         # NOTE: ^ this only gets mates that are reachable from nd in G
@@ -449,24 +452,30 @@ def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.5):
         path_rc = [rc_node(x) for x in path]
         num_mates_in_path = sum([1 for x in mate_tigs if (x in path or x in path_rc)])
         num_mates_not_in_path = len(mate_tigs)-num_mates_in_path
-        if num_mates_in_path < num_mates_not_in_path:
-            logger.info("Fewer mates in path than not")
-        tot_in_path += num_mates_in_path # Note, this double counts in-path mates
-        tot_not_in_path += num_mates_not_in_path
-
-    # avoid divide by zeros
-    if tot_not_in_path == 0: return True
-    elif tot_in_path == 0:
-        # TODO: different thresh for this case? or add this threshold in the other case too?
-        if float(tot_not_in_path)/float(len(sing_nodes)) > mate_ratio_thresh:
-            return False
-        else: return True
-
-    if float(tot_not_in_path)/(float(tot_in_path)/2.0) > mate_ratio_thresh:
-        logger.info("Too many mates not in path")
+        if len(mate_tigs)>1 and num_mates_in_path < num_mates_not_in_path:
+            non_path_dominated_nodes += 1
+    if float(non_path_dominated_nodes)/float(len(sing_nodes)) > mate_ratio_thresh:
         return False
     else: return True
-
+    ###########################################################################
+    #     if num_mates_in_path < num_mates_not_in_path:
+    #         logger.info("Fewer mates in path than not")
+    #     tot_in_path += num_mates_in_path # Note, this double counts in-path mates
+    #     tot_not_in_path += num_mates_not_in_path
+    #
+    # # avoid divide by zeros
+    # if tot_not_in_path == 0: return True
+    # elif tot_in_path == 0:
+    #     # TODO: or add this threshold in the other case too?
+    #     if float(tot_not_in_path)/float(len(sing_nodes)) > 2*mate_ratio_thresh: # want to be stricter in this case
+    #         return False
+    #     else: return True
+    #
+    # if float(tot_not_in_path)/(float(tot_in_path)/2.0) > mate_ratio_thresh:
+    #     logger.info("Too many mates not in path")
+    #     return False
+    # else: return True
+    ###########################################################################
 
 
 #########################
@@ -505,14 +514,12 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 # check coverage variation
                 path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
                 logger.info("%s: Hi conf path: %s, CV: %4f" % (proc_name, str(path),path_CV))
-                #if path_CV <= (max_CV/len(path)) and is_good_cyc(path,G,bamfile): ####################
                 if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
                     logger.info("%s: Added hi conf path %s" % (proc_name,str(path)))
-                #    logger.info("\tCV cutoff: %4f" % (max_CV/len(path)))
 
                     # prevent checking nodes that have been removed
                     # TODO: do this more efficiently
-                    # TODO: the right way to do this is just remove the top node and its RC
+                    # TODO: the right way to do this is remove just the top node and its RC
                     #       and recalculate the masses and sort in each iteration
                     i = 0
                     while i < len(potential_plasmid_mass_tuples):
@@ -528,7 +535,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
                 else:
                     logger.info("%s: Did not add hi-conf path: %s" % (proc_name, str(path)))
-                    #logger.info("%s: CV thresh: %4f" % (proc_name, max_CV/len(path)))######################
 
         # 2nd step. Run Recycler algorithm that looks for circular high mass shortest
         # paths and accept them as plasmid predictions if the coverages and mate pairs
@@ -546,8 +552,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
             last_node_count = len(COMP.nodes())
             last_path_count = path_count
-
-            if(len(paths)==0): break
 
             # make tuples of (CV, path)
             path_tuples = []
@@ -571,7 +575,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 ## only report to file if low CV and matches mate pair info
                     if (is_good_cyc(curr_path,G,bamfile) and \
                         curr_path_CV <= (max_CV) \
-            #            curr_path_CV <= (max_CV/len(curr_path)) \ ################################33
 
                     # TODO: try with or without this:   or ((path_mean > thresh) and \
                     #        get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path)))
@@ -580,7 +583,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
                         logger.info("Added path %s" % ", ".join(curr_path))
                         logger.info("\tCV: %4f" % curr_path_CV)
-#                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path))) ##############
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
 
                         update_path_coverage_vals(curr_path, COMP, SEQS)
@@ -593,7 +595,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         logger.info("\tCV: %4f" % curr_path_CV)
 #                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
 
-                # recalculate paths on the component
+            # recalculate paths on the component
             print proc_name + ': ' + str(len(COMP.nodes())) + " nodes remain in component"  ########## untabbed these!
             paths = enum_high_mass_shortest_paths(COMP,use_scores,seen_unoriented_paths)
             logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
