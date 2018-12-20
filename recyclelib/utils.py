@@ -182,10 +182,28 @@ def get_discounted_node_cov(node,path,G):
     """ Return the coverage of the node, discounted by the coverage of neighbouring
         nodes not in the path
     """
-    pred_cov = sum([get_cov_from_spades_name_and_graph(p,G) for p in G.predecessors(node) if p not in path])
-    succ_cov = sum([get_cov_from_spades_name_and_graph(s,G) for s in G.successors(node) if s not in path])
-    avg_cov_discount = (pred_cov+succ_cov)/2.0
-    return max((get_cov_from_spades_name_and_graph(node,G)-avg_cov_discount),0.0)
+    ######################## Another try:
+    pred_covs = [(get_cov_from_spades_name_and_graph(p,G),p) for p in G.predecessors(node)]
+    succ_covs = [(get_cov_from_spades_name_and_graph(s,G),s) for s in G.successors(node)]
+    
+##    pred_in_path_cov = sum(p[0] for p in pred_covs if p[1] in path)
+##    pred_non_path_cov = sum(p[0] for p in pred_covs if p[1] not in path)
+##    pred_path_weight = pred_in_path_cov/(pred_in_path_cov+pred_non_path_cov)
+##    succ_in_path_cov = sum(s[0] for s in succ_covs if s[1] in path)
+##    succ_non_path_cov = sum(s[0] for s in succ_covs if s[1] not in path)
+##    succ_path_weight = succ_in_path_cov/(succ_in_path_cov+pred_non_path_cov)
+    non_path_cov = sum([p[0] for p in pred_covs if p[1] not in path]) + sum([s[0] for s in succ_covs if s[1] not in path])
+    in_path_cov = sum([p[0] for p in pred_covs if p[1] in path]) + sum([s[0] for s in succ_covs if s[1] in path])
+    node_cov = get_cov_from_spades_name_and_graph(node,G)
+    node_cov *= in_path_cov/(non_path_cov + in_path_cov)
+    ###################### A possible alternative would be to discount in this way for both the in- and out-neighbours
+    ###################### and then average the two discounted - TODO: compare this
+    return node_cov
+
+######    pred_cov = sum([get_cov_from_spades_name_and_graph(p,G) for p in G.predecessors(node) if p not in path])
+######    succ_cov = sum([get_cov_from_spades_name_and_graph(s,G) for s in G.successors(node) if s not in path])
+######    avg_cov_discount = (pred_cov+succ_cov)/2.0
+######    return max((get_cov_from_spades_name_and_graph(node,G)-avg_cov_discount),0.0)
 #########################################
 
 
@@ -193,16 +211,16 @@ def get_path_covs(path,G,discount=False): ###############
 #############
     if discount:
         covs = [get_discounted_node_cov(n,path,G) for n in path] #################
+        # discount weight of nodes that path passes through multiple times
+        cnts = get_node_cnts_hist(path)
+        for i in range(len(path)):
+            p = path[i]
+            pos_name = p if (p[-1]!="'") else p[:-1]
+            if cnts[pos_name] > 1:
+                covs[i] /= cnts[pos_name] ########################################
     else:
         covs = [get_cov_from_spades_name_and_graph(n,G) for n in path]
 
-    # discount weight of nodes that path passes through multiple times
-    cnts = get_node_cnts_hist(path)
-    for i in range(len(path)):
-        p = path[i]
-        pos_name = p if (p[-1]!="'") else p[:-1]
-        if cnts[pos_name] > 1:
-            covs[i] /= cnts[pos_name]
     return covs
 
 
@@ -298,23 +316,32 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
     """
     if seen_paths == None:
         seen_paths = []
-    nodes = []
-    nodes = list(G.nodes()) # creates a copy
-
     unq_sorted_paths = set([])
     # in case orientation obliv. sorted path strings passed in
     for p in seen_paths:
         unq_sorted_paths.add(p)
     paths = []
 
+    nodes = []
+    nodes = list(G.nodes()) # creates a copy
+
     logger.info("Getting edge weights")
 
     # use add_edge to assign edge weights to be 1/mass of starting node
+    #TODO: only calculate these if they haven't been/need to be updated
     for e in G.edges():
         if use_scores:
-            G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
+            ########### NOTE: The shortest paths method counts shortest paths on the edges to the incoming neighbours of
+            ################# each node. The weight of the source node is the same for all these paths and we need to count
+            ################# the weight of the final node in each path. So - it makes more sense to put the weight of the
+            ################# end node on each edge.
+            G.add_edge(e[0], e[1], cost = (1.-(G.node[e[1]]['score']))/get_spades_base_mass(G, e[1]))
+#############            G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
+
         else:
-            G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
+            G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[1]))
+#########            G.add_edge(e[0], e[1], cost = 1./get_spades_base_mass(G, e[0]))
+
 
 ######################################
     # edge weights on edges (v,x) are -log(\sum_u w(v,u))
@@ -324,6 +351,9 @@ def enum_high_mass_shortest_paths(G, use_scores=False, seen_paths=None):
     #     for e in outgoing_edges:
     #         G.add_edge(e[0],e[1], cost = math.log(norm_factor)-math.log(e[2]['cost'])) ############
 ############################################
+
+    logger.info("Getting shortest paths")
+    #TODO: consider first running all pairs-shortest paths - is it more efficient?
 
     for node in nodes:
 
@@ -361,7 +391,8 @@ def get_high_mass_shortest_path(node,G):
     # twice if there are two potential plasmid nodes in it
 
     for e in G.edges():
-        G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
+        G.add_edge(e[0], e[1], cost = (1.-(G.node[e[1]]['score']))/get_spades_base_mass(G, e[1]))
+##########        G.add_edge(e[0], e[1], cost = (1.-(G.node[e[0]]['score']))/get_spades_base_mass(G, e[0]))
 
     shortest_score = float("inf")
     path = None
@@ -430,12 +461,18 @@ def get_contigs_of_mates(node, bamfile, G):
     return mate_tigs
 
 #TODO: validate choice for ratio threshold
-def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.3):
+def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.5):
     """ check all non-repeat nodes only have mates
         mapping to contigs in the cycle
     """
 
-    sing_nodes = get_non_repeat_nodes(G,path)
+    sing_nodes = set()
+    for node in path:
+      if node[-1] == "'": node = node[:-1]
+      sing_nodes.add(node)
+    ############sing_nodes = get_non_repeat_nodes(G,path)
+    #TODO: instead of this, just create set of all (forward only) nodes in the path
+    if len(sing_nodes)==0: return True ####################
 #############    tot_in_path = 0
 #############    tot_not_in_path = 0
 
@@ -455,6 +492,7 @@ def is_good_cyc(path, G, bamfile,mate_ratio_thresh=0.3):
         if len(mate_tigs)>1 and num_mates_in_path < num_mates_not_in_path:
             non_path_dominated_nodes += 1
     if float(non_path_dominated_nodes)/float(len(sing_nodes)) > mate_ratio_thresh:
+        logger.info("Too many nodes with majority of mates not on path")
         return False
     else: return True
     ###########################################################################
@@ -514,6 +552,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 # check coverage variation
                 path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
                 logger.info("%s: Hi conf path: %s, CV: %4f" % (proc_name, str(path),path_CV))
+
                 if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
                     logger.info("%s: Added hi conf path %s" % (proc_name,str(path)))
 
@@ -558,9 +597,11 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             for p in paths:
                 if len(get_seq_from_path(p, SEQS, max_k_val=max_k)) < min_length:
                     seen_unoriented_paths.add(get_unoriented_sorted_str(p))
+                    logger.info("%s: Num seen paths: %d" % (proc_name, len(seen_unoriented_paths)))
                     continue
                 path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
 
+            logger.info("%s: Num path tuples: %d" % (proc_name, len(path_tuples)))
             if(len(path_tuples)==0): break
 
             # sort in ascending CV order
@@ -569,21 +610,20 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             for pt in path_tuples:
                 curr_path = pt[1]
                 curr_path_CV = pt[0]
+                logger.info("%s: Path: %s" % (proc_name, ",".join(curr_path)))
                 if get_unoriented_sorted_str(curr_path) not in seen_unoriented_paths:
-                    path_mean, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k_val=max_k)
 
-                ## only report to file if low CV and matches mate pair info
-                    if (is_good_cyc(curr_path,G,bamfile) and \
-                        curr_path_CV <= (max_CV) \
+                ## only report if low CV and matches mate pair info
+###################################3
+                    if (curr_path_CV <= (max_CV) and \
+                        is_good_cyc(curr_path,G,bamfile)):
 
-                    # TODO: try with or without this:   or ((path_mean > thresh) and \
-                    #        get_wgtd_path_coverage_CV(curr_path,COMP,SEQS,max_k_val=max_k) <= (max_CV/len(curr_path)))
-                    ):
                         print(curr_path)
 
                         logger.info("Added path %s" % ", ".join(curr_path))
                         logger.info("\tCV: %4f" % curr_path_CV)
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
+                        logger.info("%s: Num seen paths: %d" % (proc_name, len(seen_unoriented_paths)))
 
                         update_path_coverage_vals(curr_path, COMP, SEQS)
                         path_count += 1
@@ -593,10 +633,15 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                     else:
                         logger.info("%s: Did not add path: %s" % (proc_name, ", ".join(curr_path)))
                         logger.info("\tCV: %4f" % curr_path_CV)
-#                        logger.info("\tCV cutoff: %4f" % (max_CV/len(curr_path)))
+                        if curr_path_CV > max_CV:
+                            break # sorted by CV
+                        else: # not good mate pairs
+                            seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
+                            logger.info("%s: Num seen paths: %d" % (proc_name, len(seen_unoriented_paths)))
 
             # recalculate paths on the component
-            print proc_name + ': ' + str(len(COMP.nodes())) + " nodes remain in component"  ########## untabbed these!
+            print proc_name + ': ' + str(len(COMP.nodes())) + " nodes remain in component"
+            logger.info("%s: Remaining nodes: %d" % (proc_name, len(COMP.nodes())))
             paths = enum_high_mass_shortest_paths(COMP,use_scores,seen_unoriented_paths)
             logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
 

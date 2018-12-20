@@ -182,12 +182,12 @@ if __name__ == '__main__':
 
     for i in xrange(num_procs):
         job_queue.put(None) # signal that the jobs are all done - one for each process
-    job_queue.join() # wait till all processes return
+        print "%d jobs" % njobs
+##################    job_queue.join() # wait till all processes return
 ####################################
 
     # done peeling
     # print final paths to screen
-    print "%d jobs" % njobs
     print("==================final_paths identities after updates: ================")
 
     # write out sequences to fasta - long self-loops
@@ -201,7 +201,8 @@ if __name__ == '__main__':
     ## All processes done
     ## Read results queues of each
     for i in xrange(njobs):
-        paths_set = result_queue.get()
+        paths_set = result_queue.get(block=True) ##################
+#################        paths_set = result_queue.get()
         for p in paths_set:
             name = get_spades_type_name(path_count, p, SEQS, max_k, G)
             covs = get_path_covs(p,G)
