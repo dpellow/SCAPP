@@ -47,14 +47,17 @@ def parse_user_input():
             help='Contig plasmid scores file',
             required=False, type=str
         )
+    parser.add_argument('-gh','--gene_hits',
+            help='Contig plasmid gene hits file',
+            required=False, type=str
+        )
+
     return parser.parse_args()
 
 
-if __name__ == '__main__':
+def main():
 
     ####### entry point  ##############
-    # inputs: spades assembly fastg, BAM of reads aligned to unitigs
-    # outputs: fasta of cycles found by joining component edges
 
     ###################################
     # read in fastg, load graph, create output handle
@@ -70,6 +73,10 @@ if __name__ == '__main__':
         scores_file = args.scores
         use_scores = True
     else: use_scores = False
+    if args.gene_hits:
+        genes_file = args.gene_hits
+        use_genes = True
+    else: use_genes = False
     # output 1 - fasta of sequences
     if args.output_dir:
         if not os.path.exists(args.output_dir):
@@ -123,7 +130,9 @@ if __name__ == '__main__':
         get_node_scores(scores_file,G)
         remove_hi_confidence_chromosome(G)
         #TODO: take into account how to discount coverage of these nodes from their neighbours
-
+    # keep track of the nodes that have plasmid genes on them
+    if use_genes:
+        get_gene_nodes(genes_file,G)
 #####################
 
     # gets set of long simple loops, removes short
@@ -141,7 +150,6 @@ if __name__ == '__main__':
 #    comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
 #   #below function is deprecated in nx 2.1....
     comps = nx.strongly_connected_component_subgraphs(G)
-    COMP = nx.DiGraph()
 
     ###################################
     # iterate through SCCs looking for cycles
@@ -150,7 +158,7 @@ if __name__ == '__main__':
     # set up the multiprocessing #########################################
     job_queue = multiprocessing.JoinableQueue()
     result_queue = multiprocessing.Queue()
-    workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores)) for i in xrange(num_procs)]
+    workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores, use_genes)) for i in xrange(num_procs)]
     for w in workers:
         w.daemon = True
         w.start()
@@ -160,7 +168,7 @@ if __name__ == '__main__':
 #    for c in comps:
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
-    for c in sorted(comps,key=len,reverse=True): # descending order - schedule large components first ######
+    for c in sorted(comps,key=len):######################################################################################################################################################################## TODO: OTHER ORDER ,reverse=True): # descending order - schedule large components first ######
 
 	# check if any nodes in comp in visited nodes
         # if so continue
@@ -172,6 +180,7 @@ if __name__ == '__main__':
         if redundant:
              redundant = False
              continue # have seen the RC version of component
+        COMP = nx.DiGraph()
         COMP = c.copy()
 
         job_queue.put(COMP)
@@ -213,3 +222,7 @@ if __name__ == '__main__':
                 f_cyc_paths.write(name + "\n" +str(p)+ "\n" + str(covs)
                     + "\n" + str([get_num_from_spades_name(n) for n in p]) + "\n")
             path_count += 1
+
+
+if __name__ == '__main__':
+    main()
