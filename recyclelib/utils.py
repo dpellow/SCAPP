@@ -147,7 +147,8 @@ def update_node_coverage(G, node, new_cov):
             G.remove_node(rc_node(node))
     else:
         G.add_node(node, cov=new_cov)
-        G.add_node(rc_node(node), cov=new_cov)
+        if rc_node(node) in G.nodes(): # HACKy TODO: FIX THIS BUG PROPERLY!
+          G.add_node(rc_node(node), cov=new_cov)
 
 def get_spades_base_mass(G, name):
     length = get_length_from_spades_name(name)
@@ -317,7 +318,6 @@ def get_hi_conf_plasmids(G, len_thresh=10000, score_thresh=0.9):
 def get_plasmid_gene_nodes(G):
     """ Return list of nodes annotated as having a plasmid gene
     """
-    print G.nodes()
     plasmid_gene_nodes = [nd for nd in G.nodes() if G.nodes[nd]['gene']==True]
     logger.info("Found %d nodes with plasmid genes" % len(plasmid_gene_nodes))
     return plasmid_gene_nodes
