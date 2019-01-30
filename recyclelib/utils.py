@@ -563,20 +563,21 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         # don't do this for components with very few nodes
         cov_threshes = []
         coverages = [get_cov_from_spades_name_and_graph(n,COMP) for n in COMP.nodes()] # TODO: CHECK RCs ??
+        coverages.sort()
         if len(COMP.nodes()) <= 10:
             cov_threshes.append(coverages[0])
         elif len(COMP.nodes()) <= 20:
-            cov_threshes.append(coverages[len(coverages)//2])
             cov_threshes.append(coverages[0])
+            cov_threshes.append(coverages[len(coverages)//2])
         elif len(COMP.nodes()) <= 30:
-            cov_threshes.append(coverages[len(coverages)*2//3])
+            cov_threshes.append(coverages[0])
             cov_threshes.append(coverages[len(coverages)//3])
-            cov_threshes.append(coverages[0])
+            cov_threshes.append(coverages[len(coverages)*2//3])
         else:
-            cov_threshes.append(coverages[len(coverages)*3//4])
-            cov_threshes.append(coverages[len(coverages)//2])
-            cov_threshes.append(coverages[len(coverages)//4])
             cov_threshes.append(coverages[0])
+            cov_threshes.append(coverages[len(coverages)//4])
+            cov_threshes.append(coverages[len(coverages)//2])
+            cov_threshes.append(coverages[len(coverages)*3//4])
 
         path_count = 0
         seen_unoriented_paths = set([])
@@ -584,25 +585,32 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
         subcomp = nx.DiGraph()
 
-        for ct in cov_threshes:
-            if len(COMP.nodes()) <= 10:
-                subcomp = COMP
-            else:
-                for node in COMP.nodes():
-                    if node in subcomp.nodes(): continue
-                    if get_cov_from_spades_name_and_graph(node,COMP) >= ct:
-                        subcomp.add_node(node)
-                        if use_genes:
-                            subcomp.add_node(node, gene=COMP.nodes[node]['gene'])
-                        if use_scores:
-                            subcomp.add_node(node, score=COMP.nodes[node]['score'])
-                for edge in COMP.edges():
-                    if edge[0] in subcomp.nodes() and edge[1] in subcomp.nodes():
-                        subcomp.add_edge(edge[0], edge[1])
+        if len(COMP.nodes()) <= 10:
+            subcomp = COMP
+        else:
+            for node in COMP.nodes():
+                subcomp.add_node(node)
+                if use_genes:
+                    subcomp.add_node(node, gene=COMP.nodes[node]['gene'])
+                if use_scores:
+                    subcomp.add_node(node, score=COMP.nodes[node]['score'])
+            for edge in COMP.edges():
+                    subcomp.add_edge(edge[0], edge[1])
 
+        for ct in cov_threshes:
+          logger.info("Cov thresh: %f" % ct)
+          nodes_list = list(subcomp.nodes())
+          logger.info("Num nodes: %d, num in comp: %d" % (len(nodes_list), len(COMP.nodes())))
+          num_removed = 0
+          for node in nodes_list:
+            if len(cov_threshes) <= 1: break
+            if get_cov_from_spades_name_and_graph(node,subcomp) < ct:
+              subcomp.remove_node(node)
+              num_removed += 1
+          logger.info("Removed: %d" % num_removed)
 
             # first look for paths starting from the nodes annotated with plasmid genes
-            if use_genes:
+          if use_genes:
                 plasmid_gene_nodes = get_plasmid_gene_nodes(subcomp)
                 potential_plasmid_mass_tuples = [(get_spades_base_mass(subcomp,nd),nd) for nd in plasmid_gene_nodes]
                 potential_plasmid_mass_tuples.sort(key = lambda n: n[0])
@@ -643,7 +651,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
             # then look for circular paths that start from hi confidence plasmid nodes
             # TODO: implement own scoring function
-            if use_scores:
+          if use_scores:
                 potential_plasmid_nodes = get_hi_conf_plasmids(subcomp)
                 potential_plasmid_mass_tuples = [(get_spades_base_mass(subcomp,nd),nd) for nd in potential_plasmid_nodes]
                 potential_plasmid_mass_tuples.sort(key = lambda n: n[0])
@@ -685,15 +693,15 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             # match the required thresholds
     #######################################################################################
     #######################################################################################
-            paths = enum_high_mass_shortest_paths(subcomp,use_scores,use_genes,seen_unoriented_paths)
-            ###################################logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
+          paths = enum_high_mass_shortest_paths(subcomp,use_scores,use_genes,seen_unoriented_paths)
+          ###################################logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
 
-            last_path_count = 0
-            last_node_count = 0
+          last_path_count = 0
+          last_node_count = 0
 
             # continue as long as you either removed a low mass path
             # from the component or added a new path to final paths
-            while(path_count!=last_path_count or\
+          while(path_count!=last_path_count or\
                 len(subcomp.nodes())!=last_node_count):
 
                 last_node_count = len(subcomp.nodes())
