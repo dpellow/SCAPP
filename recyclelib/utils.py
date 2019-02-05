@@ -563,6 +563,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         # don't do this for components with very few nodes
         cov_threshes = []
         coverages = [get_cov_from_spades_name_and_graph(n,COMP) for n in COMP.nodes()] # TODO: CHECK RCs ??
+        coverages.sort()
         if len(COMP.nodes()) <= 10:
             cov_threshes.append(coverages[0])
         elif len(COMP.nodes()) <= 20:
@@ -585,6 +586,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         subcomp = nx.DiGraph()
 
         for ct in cov_threshes:
+            logger.info("Cov thresh: %f" % ct)
             if len(COMP.nodes()) <= 10:
                 subcomp = COMP
             else:
@@ -596,6 +598,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                             subcomp.add_node(node, gene=COMP.nodes[node]['gene'])
                         if use_scores:
                             subcomp.add_node(node, score=COMP.nodes[node]['score'])
+                    logger.info("Num nodes: %d, num in comp: %d" % (len(subcomp.nodes()), len(COMP.nodes())))
                 for edge in COMP.edges():
                     if edge[0] in subcomp.nodes() and edge[1] in subcomp.nodes():
                         subcomp.add_edge(edge[0], edge[1])
