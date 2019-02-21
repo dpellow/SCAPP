@@ -104,8 +104,7 @@ def main():
 
     G = get_fastg_digraph(fastg)
 ####################
-#    logger.info("Removing isolate nodes: %s" % ", ".join(list(nx.isolates(G))))######
-
+    logger.info("Removing %d isolate nodes" % len(list(nx.isolates(G))))
     G.remove_nodes_from(list(nx.isolates(G)))
 ######### NOTE: if don't require circular path, should leave long isolates in
 
@@ -137,7 +136,7 @@ def main():
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS)
+    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath max_k)
 
     final_paths_dict = {}
 
@@ -165,12 +164,11 @@ def main():
     njobs = 0
     print("================== path, coverage levels when added ====================")
 
-#    for c in comps:
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
-    for c in sorted(comps,key=len):######################################################################################################################################################################## TODO: OTHER ORDER ,reverse=True): # descending order - schedule large components first ######
+    for c in sorted(comps,key=len):
 
-	# check if any nodes in comp in visited nodes
+	    # check if any nodes in comp in visited nodes
         # if so continue
         for node in c.nodes():
              if node in VISITED_NODES: # I assume the below is an error?
@@ -193,7 +191,6 @@ def main():
         job_queue.put(None) # signal that the jobs are all done - one for each process
         print "%d jobs" % njobs
 ##################    job_queue.join() # wait till all processes return
-####################################
 
     # done peeling
     # print final paths to screen
@@ -206,7 +203,7 @@ def main():
         print(" ")
         if len(seq)>=min_length:
             f_cycs_fasta.write(">" + p + "\n" + seq + "\n")
-##################
+
     ## All processes done
     ## Read results queues of each
     for i in xrange(njobs):
