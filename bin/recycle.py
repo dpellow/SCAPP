@@ -5,6 +5,8 @@ from recyclelib.utils import *
 import pysam
 import logging
 import multiprocessing
+import copy
+
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
@@ -136,7 +138,7 @@ def main():
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath max_k)
+    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
 
     final_paths_dict = {}
 
@@ -146,9 +148,9 @@ def main():
         final_paths_dict[name] = nd
         path_count += 1
 
-#    comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
+    comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
 #   #below function is deprecated in nx 2.1....
-    comps = nx.strongly_connected_component_subgraphs(G)
+    #comps = nx.strongly_connected_component_subgraphs(G)
 
     ###################################
     # iterate through SCCs looking for cycles
@@ -179,7 +181,7 @@ def main():
              redundant = False
              continue # have seen the RC version of component
         COMP = nx.DiGraph()
-        COMP = c.copy()
+        COMP = c.to_directed() ############copy.deepcopy(c) ############ c.copy()
 
         job_queue.put(COMP)
         rc_nodes = [rc_node(n) for n in COMP.nodes()]

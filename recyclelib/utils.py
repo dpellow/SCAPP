@@ -187,12 +187,11 @@ def get_node_cnts_hist(path):
         d[pos_name] = d.get(pos_name,0) + 1
     return d
 
-#######################################
+
 def get_discounted_node_cov(node,path,G):
     """ Return the coverage of the node, discounted by the coverage of neighbouring
         nodes not in the path
     """
-    ######################## Another try:
     pred_covs = [(get_cov_from_spades_name_and_graph(p,G),p) for p in G.predecessors(node)]
     succ_covs = [(get_cov_from_spades_name_and_graph(s,G),s) for s in G.successors(node)]
 
@@ -205,17 +204,16 @@ def get_discounted_node_cov(node,path,G):
     return node_cov
 
 
-def get_path_covs(path,G,discount=False): ###############
-#############
+def get_path_covs(path,G,discount=False):
     if discount:
-        covs = [get_discounted_node_cov(n,path,G) for n in path] #################
+        covs = [get_discounted_node_cov(n,path,G) for n in path]
         # discount weight of nodes that path passes through multiple times
         cnts = get_node_cnts_hist(path)
         for i in range(len(path)):
             p = path[i]
             pos_name = p if (p[-1]!="'") else p[:-1]
             if cnts[pos_name] > 1:
-                covs[i] /= cnts[pos_name] ########################################
+                covs[i] /= cnts[pos_name]
     else:
         covs = [get_cov_from_spades_name_and_graph(n,G) for n in path]
 
@@ -246,7 +244,7 @@ def get_total_path_mass(path,G):
         get_cov_from_spades_name_and_graph(p,G) for p in path])
 
 
-def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55):
+def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55, score_thresh=0.9):
     """ returns set of self loop nodes paths that are longer
         than min length and satisfy mate pair requirements;
         removes those and short self loops from G
@@ -256,7 +254,7 @@ def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55):
     to_remove = []
 
     for nd in G.nodes_with_selfloops():
-        if rc_node(nd) in potential_plasmids: continue
+        if (rc_node(nd),) in potential_plasmids: continue
         nd_path = (nd,)
         path_len = len(get_seq_from_path(nd_path, seqs, max_k_val))
 
@@ -268,9 +266,17 @@ def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55):
             if path_len < min_length:
                 to_remove.append(nd)
                 continue
+
+            # take nodes that have plasmid genes or very high plasmid scores
+            if G.nodes[nd]['score'] > score_thresh or G.nodes[nd]['gene']==True:
+                potential_plasmids.add(nd_path)
+                logger.info("Added path: %s - high scoring long self-loop" % nd)
+                to_remove.append(nd)
+                continue
+
             off_node_mate_count, on_node_mate_count = count_selfloop_mates(nd,bamfile,G)
             if float(off_node_mate_count) > 0.1*float(on_node_mate_count):
-                logger.info('Self loop %s has 10\% off-node mate-pairs. Removing' % nd)
+                logger.info('Self loop %s has 10 percent off-node mate-pairs. Removing' % nd)
                 to_remove.append(nd)
             else:
                 potential_plasmids.add(nd_path)
@@ -282,7 +288,7 @@ def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55):
             off_node_mate_count, on_node_mate_count = count_selfloop_mates(nd,bamfile,G)
             if float(off_node_mate_count) > 0.1*float(on_node_mate_count): # TODO: could be different than for isolated loop
                                                                            # Maybe - func of node length (and read length, insert size???)
-                logger.info('Self loop %s has 10\% off-node mate-pairs. Removing' % nd)
+                logger.info('Self loop %s has 10 percent off-node mate-pairs.' % nd)
             else:
                 potential_plasmids.add(nd_path)
                 logger.info("Added path: %s  - long self loop" % nd)
@@ -290,7 +296,7 @@ def get_long_self_loops(G, min_length, seqs, bampath, max_k_val=55):
 
     for nd in to_remove:
         update_node_coverage(G, nd, 0)
-        logger.info("Removing %d self-loop nodes" % len(to_remove))
+    logger.info("Removing %d self-loop nodes" % len(to_remove))
     return potential_plasmids
 
 def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
@@ -413,7 +419,7 @@ def get_high_mass_shortest_path(node,G,use_scores,use_genes):
 
     for e in G.edges():
         if use_genes and G.nodes[e[1]]['gene'] == True:
-            G.add_edge(e[0], e[1], cost = 0.0) ##################################################
+            G.add_edge(e[0], e[1], cost = 0.0)
         elif use_scores == True:
             G.add_edge(e[0], e[1], cost = (1.-(G.nodes[e[1]]['score']))/get_spades_base_mass(G, e[1]))
         else:
@@ -455,25 +461,25 @@ def get_spades_type_name(count, path, seqs, max_k_val, G, cov=None):
     return "_".join(info)
 
 
-def count_node_mates(node, path, bamfile):
-    """ Counts the number of off-node and on-node mate pairs of
-    """
-    off_path_count = 0
-    on_path_count = 0
-    if node[-1] == "'": node = node[:-1]:
-    try:
-        for hit in bamfile.fetch(node):
-            nref = bamfile.getrname(hit.next_reference_id)
-            if nref != node:
-                if nref in path or rc_node(nref) in path:
-                    on_path_count += 1
-                else:
-                    off_path_count += 1
-
-    except ValueError:
-        pass
-
-    return on_path_count, off_path_count
+#def count_node_mates(node, path, bamfile):
+#    """ Counts the number of off-node and on-node mate pairs of
+#    """
+#    off_path_count = 0
+#    on_path_count = 0
+#    if node[-1] == "'": node = node[:-1]
+#    try:
+#        for hit in bamfile.fetch(node):
+#            nref = bamfile.getrname(hit.next_reference_id)
+#            if nref != node:
+#                if nref in path or rc_node(nref) in path:
+#                    on_path_count += 1
+#                else:
+#                    off_path_count += 1
+#
+#    except ValueError:
+#        pass
+#
+#    return on_path_count, off_path_count
 
 def count_selfloop_mates(node,bamfile,G):
     """ Counts the number of off-node and on-node mate pairs of
@@ -539,11 +545,11 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
     if len(sing_nodes)==0: return True
 
     # check if any nodes seem not to match path
-    for nd in sing_nodes:
-        num_on_path, num_off_path = count_node_mates(nd, path, bamfile)
-        if float(num_off_path) > off_path_thresh*float((num_on_path + num_off_path)):
-            logger.info("Node %s has most mates off path" % nd)
-            return False
+#    for nd in sing_nodes:
+#        num_on_path, num_off_path = count_node_mates(nd, path, bamfile)
+#        if float(num_off_path) > off_path_thresh*float(num_on_path + num_off_path):
+#            logger.info("Node %s has most mates off path" % nd)
+#            return False
 
     non_path_dominated_nodes = 0
 
@@ -557,9 +563,10 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
         path_rc = [rc_node(x) for x in path]
         num_mates_in_path = sum([1 for x in mate_tigs if (x in path or x in path_rc)])
         num_mates_not_in_path = len(mate_tigs)-num_mates_in_path
-        if len(mate_tigs)>1 and num_mates_in_path <= num_mates_not_in_path:
+        if num_mates_in_path < num_mates_not_in_path:
+       ########### if len(mate_tigs)>1 and num_mates_in_path < num_mates_not_in_path:
             non_path_dominated_nodes += 1
-    if float(non_path_dominated_nodes)/float(len(sing_nodes)) > mate_ratio_thresh:
+    if float(non_path_dominated_nodes)/float(len(sing_nodes)) > dominated_thresh:
         logger.info("Too many nodes with majority of mates not on path")
         return False
     else: return True
@@ -600,8 +607,31 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             job_queue.task_done()
             break # done process
         logger.info("%s: Next comp" % (proc_name))
-        # initialize shortest path set considered
 
+
+        #################################################
+        # Experiment with max flow
+        nodes = list(COMP.nodes())
+        if len(nodes) > 10 and len(nodes) < 500:
+            COMP.add_node("super_source")
+            COMP.add_node("super_sink")
+            for e in COMP.edges():
+                COMP.add_edge(e[0],e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[1],COMP)), weight = -1)
+        #    COMP.add_edge("super_source",nodes[0])
+        #    for nd in nodes[1:]:
+        #        COMP.add_edge(nd, "super_sink")
+        #    COMP.add_edge("super_sink", "super_source", weight=-1)
+            flow_dict = nx.max_flow_min_cost(COMP, "super_source", "super_sink")
+            COMP.remove_node("super_sink")
+            COMP.remove_node("super_source")
+            logger.info("Comp flow")
+            for e in COMP.edges():
+                logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], COMP.edges[e]['capacity']))
+
+
+        #################################################
+
+        # initialize shortest path set considered
         path_count = 0
         seen_unoriented_paths = set([])
         paths_set = set([]) #the set of paths found
