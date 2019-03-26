@@ -125,6 +125,32 @@ def main():
     path_count = 0
     SEQS = get_fastg_seqs_dict(fastg,G)
 
+
+    #################################################
+    # Experiment with max flow
+    sinks = [nd for nd in G.nodes() if G.out_degree(nd) == 0]
+    sources = [nd for nd in G.nodes() if G.in_degree(nd) == 0]
+    G.add_node("super_source")
+    G.add_node("super_sink")
+    for e in G.edges():
+        G.add_edge(e[0], e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[0],G)))
+    for nd in sources:
+        G.add_edge("super_source",nd)
+    for nd in sinks:
+        G.add_edge(nd,"super_sink", capacity = np.ceil(get_cov_from_spades_name_and_graph(nd,G)))
+    flow, flow_dict = nx.maximum_flow(G, "super_source", "super_sink")
+    G.remove_node("super_sink")
+    G.remove_node("super_source")
+    logger.info("Comp flow")
+    with open("flow.csv", 'w+') as o:
+        for e in G.edges():
+            o.write(e[1].split('_')[1]+ ',' + str(flow_dict[e[0]][e[1]])+'\n')
+    for e in G.edges():
+        logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], G.edges[e]['capacity']))
+
+    ##############################################################################
+
+
 #####################
     # add a score to every node, remove long nodes that are most probably chrom.
     if use_scores:

@@ -5,6 +5,8 @@ import networkx as nx
 import re, pysam
 import logging
 import multiprocessing
+import flow_utils
+
 
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 logger = logging.getLogger("recycle_logger")
@@ -609,24 +611,27 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         logger.info("%s: Next comp" % (proc_name))
 
 
-        #################################################
-        # Experiment with max flow
-        nodes = list(COMP.nodes())
-        if len(nodes) > 10 and len(nodes) < 500:
-            COMP.add_node("super_source")
-            COMP.add_node("super_sink")
-            for e in COMP.edges():
-                COMP.add_edge(e[0],e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[1],COMP)), weight = -1)
-        #    COMP.add_edge("super_source",nodes[0])
-        #    for nd in nodes[1:]:
-        #        COMP.add_edge(nd, "super_sink")
-        #    COMP.add_edge("super_sink", "super_source", weight=-1)
-            flow_dict = nx.max_flow_min_cost(COMP, "super_source", "super_sink")
-            COMP.remove_node("super_sink")
-            COMP.remove_node("super_source")
-            logger.info("Comp flow")
-            for e in COMP.edges():
-                logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], COMP.edges[e]['capacity']))
+        # #################################################
+        # # Experiment with max flow
+        # nodes = list(COMP.nodes())
+        # if len(nodes) > 10 and len(nodes) < 500:
+        #     COMP.add_node("super_source")
+        #     COMP.add_node("super_sink")
+        #     for e in COMP.edges():
+        #         COMP.add_edge(e[0],e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[1],COMP)), weight = -1)
+        # #    COMP.add_edge("super_source",nodes[0])
+        # #    for nd in nodes[1:]:
+        # #        COMP.add_edge(nd, "super_sink")
+        # #    COMP.add_edge("super_sink", "super_source", weight=-1)
+        #     flow_dict = nx.max_flow_min_cost(COMP, "super_source", "super_sink")
+        #     COMP.remove_node("super_sink")
+        #     COMP.remove_node("super_source")
+        #     logger.info("Comp flow")
+        #     with open("flow.out", 'a+') as o:
+        #         for e in COMP.edges():
+        #             o.write(e[1].split('_')[1]+ ',' + str(flow_dict[e[0]][e[1]])+'\n')
+        #     for e in COMP.edges():
+        #         logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], COMP.edges[e]['capacity']))
 
 
         #################################################
