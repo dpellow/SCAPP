@@ -610,6 +610,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             break # done process
         logger.info("%s: Next comp" % (proc_name))
 
+        ###############MOVED FROM OUTER CODE ON WHOLE G
+        if use_scores: remove_hi_confidence_chromosome(COMP) ##################################
+        long_self_loops = get_long_self_loops(COMP, min_length, SEQS, bampath, max_k)
 
         # #################################################
         # # Experiment with max flow
@@ -641,6 +644,17 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         seen_unoriented_paths = set([])
         paths_set = set([]) #the set of paths found
 
+##########################################################
+###########MOVED FROM OUTSIDE LOOP IN RECYCLE.PY
+        for l in long_self_loops:
+            seen_unoriented_paths.add(get_unoriented_sorted_str(l))
+        #    update_path_coverage_vals(l, COMP, SEQS)
+            update_path_coverage_vals(l, G, SEQS)
+            path_count += 1
+            paths_set.add(l)
+
+
+
         # first look for paths starting from the nodes annotated with plasmid genes
         if use_genes:
             plasmid_gene_nodes = get_plasmid_gene_nodes(COMP)
@@ -652,7 +666,8 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 path = get_high_mass_shortest_path(top_node_name,COMP,use_scores,use_genes) #######
                 if path is None: continue
                 # check coverage variation
-                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
+                path_CV = get_wgtd_path_coverage_CV(path,G,SEQS,max_k_val=max_k)
+#################################                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
                 logger.info("%s: Plasmid gene path: %s, CV: %4f" % (proc_name, str(path),path_CV))
 
                 if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
@@ -670,7 +685,8 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         else: i += 1
 
                     seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                    update_path_coverage_vals(path, COMP, SEQS)
+                    update_path_coverage_vals(path, COMP, SEQS)#############################
+                    update_path_coverage_vals(path, G, SEQS) #############################
                     path_count += 1
                     paths_set.add(path)
 
@@ -689,7 +705,8 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                 path = get_high_mass_shortest_path(top_node_name,COMP,use_scores,use_genes)
                 if path is None: continue
                 # check coverage variation
-                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
+                path_CV = get_wgtd_path_coverage_CV(path,G,SEQS,max_k_val=max_k)
+#######################                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
                 logger.info("%s: Hi conf path: %s, CV: %4f" % (proc_name, str(path),path_CV))
 
                 if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
@@ -707,7 +724,8 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         else: i += 1
 
                     seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                    update_path_coverage_vals(path, COMP, SEQS)
+                    update_path_coverage_vals(path, COMP, SEQS)########################
+                    update_path_coverage_vals(path, G, SEQS)##########################
                     path_count += 1
                     paths_set.add(path)
 
@@ -739,7 +757,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                     seen_unoriented_paths.add(get_unoriented_sorted_str(p))
                     logger.info("%s: Num seen paths: %d" % (proc_name, len(seen_unoriented_paths)))
                     continue
-                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
+                logger.info("path: %s" % str(p))
+                path_tuples.append((get_wgtd_path_coverage_CV(p,G,SEQS,max_k_val=max_k), p))
+###################                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
 
             logger.info("%s: Num path tuples: %d" % (proc_name, len(path_tuples)))
             if(len(path_tuples)==0): break
@@ -763,7 +783,8 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         logger.info("\tCV: %4f" % curr_path_CV)
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
 
-                        update_path_coverage_vals(curr_path, COMP, SEQS)
+                        update_path_coverage_vals(curr_path, COMP, SEQS)#########################
+                        update_path_coverage_vals(curr_path, G, SEQS)#####################
                         path_count += 1
                         paths_set.add(curr_path)
                         break

@@ -126,27 +126,27 @@ def main():
     SEQS = get_fastg_seqs_dict(fastg,G)
 
 
-    #################################################
-    # Experiment with max flow
-    sinks = [nd for nd in G.nodes() if G.out_degree(nd) == 0]
-    sources = [nd for nd in G.nodes() if G.in_degree(nd) == 0]
-    G.add_node("super_source")
-    G.add_node("super_sink")
-    for e in G.edges():
-        G.add_edge(e[0], e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[0],G)))
-    for nd in sources:
-        G.add_edge("super_source",nd)
-    for nd in sinks:
-        G.add_edge(nd,"super_sink", capacity = np.ceil(get_cov_from_spades_name_and_graph(nd,G)))
-    flow, flow_dict = nx.maximum_flow(G, "super_source", "super_sink")
-    G.remove_node("super_sink")
-    G.remove_node("super_source")
-    logger.info("Comp flow")
-    with open("flow.csv", 'w+') as o:
-        for e in G.edges():
-            o.write(e[1].split('_')[1]+ ',' + str(flow_dict[e[0]][e[1]])+'\n')
-    for e in G.edges():
-        logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], G.edges[e]['capacity']))
+    # #################################################
+    # # Experiment with max flow
+    # sinks = [nd for nd in G.nodes() if G.out_degree(nd) == 0]
+    # sources = [nd for nd in G.nodes() if G.in_degree(nd) == 0]
+    # G.add_node("super_source")
+    # G.add_node("super_sink")
+    # for e in G.edges():
+    #     G.add_edge(e[0], e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[0],G)))
+    # for nd in sources:
+    #     G.add_edge("super_source",nd)
+    # for nd in sinks:
+    #     G.add_edge(nd,"super_sink", capacity = np.ceil(get_cov_from_spades_name_and_graph(nd,G)))
+    # flow, flow_dict = nx.maximum_flow(G, "super_source", "super_sink")
+    # G.remove_node("super_sink")
+    # G.remove_node("super_source")
+    # logger.info("Comp flow")
+    # with open("flow.csv", 'w+') as o:
+    #     for e in G.edges():
+    #         o.write(e[0].split('_')[1]+ ',' + str(flow_dict[e[0]][e[1]])+'\n')
+    # for e in G.edges():
+    #     logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], G.edges[e]['capacity']))
 
     ##############################################################################
 
@@ -155,7 +155,8 @@ def main():
     # add a score to every node, remove long nodes that are most probably chrom.
     if use_scores:
         get_node_scores(scores_file,G)
-        remove_hi_confidence_chromosome(G)
+########### MOVE THIS TO COMPONENT
+######        remove_hi_confidence_chromosome(G)
         #TODO: take into account how to discount coverage of these nodes from their neighbours
     # keep track of the nodes that have plasmid genes on them
     if use_genes:
@@ -164,15 +165,16 @@ def main():
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
+     ########## MOVED TO COMP long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
 
     final_paths_dict = {}
 
-    for nd in long_self_loops:
-        name = get_spades_type_name(path_count, nd,
-            SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
-        final_paths_dict[name] = nd
-        path_count += 1
+###################MOVED TO COMP
+    # for nd in long_self_loops:
+    #     name = get_spades_type_name(path_count, nd,
+    #         SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
+    #     final_paths_dict[name] = nd
+    #     path_count += 1
 
     comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
 #   #below function is deprecated in nx 2.1....
