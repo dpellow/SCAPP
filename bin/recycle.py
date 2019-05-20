@@ -165,16 +165,16 @@ def main():
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-     ########## MOVED TO COMP long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
+    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
 
     final_paths_dict = {}
 
-###################MOVED TO COMP
-    # for nd in long_self_loops:
-    #     name = get_spades_type_name(path_count, nd,
-    #         SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
-    #     final_paths_dict[name] = nd
-    #     path_count += 1
+
+    for nd in long_self_loops:
+        name = get_spades_type_name(path_count, nd,
+        SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
+        final_paths_dict[name] = nd
+        path_count += 1
 
     comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
 #   #below function is deprecated in nx 2.1....

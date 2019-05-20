@@ -240,6 +240,14 @@ def update_path_coverage_vals(path, G, seqs):
             update_node_coverage(G,path[i],new_covs[i])
         else:
             update_node_coverage(G,path[i],0)
+    return new_covs
+
+def update_path_with_covs(path, G, covs):
+    for i in range(len(path)):
+        if covs[i] > 0:
+            update_node_coverage(G,path[i],covs[i])
+        else:
+            update_node_coverage(G,path[i],0)
 
 def get_total_path_mass(path,G):
     return sum([get_length_from_spades_name(p) * \
@@ -310,7 +318,7 @@ def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
             G.nodes[nd]['score']<score_thresh:
             to_remove.append(nd)
             to_remove.append(rc_node(nd))
-    print "Removing {} nodes".format(len(set(to_remove)))
+    print ("Removing " + str(len(set(to_remove))) + " nodes")
     G.remove_nodes_from(to_remove)
     logger.info("Removed %d long, likely chromosomal nodes" % len(set(to_remove)))
 
@@ -612,7 +620,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
 
         ###############MOVED FROM OUTER CODE ON WHOLE G
         if use_scores: remove_hi_confidence_chromosome(COMP) ##################################
-        long_self_loops = get_long_self_loops(COMP, min_length, SEQS, bampath, max_k)
 
         # #################################################
         # # Experiment with max flow
@@ -643,15 +650,6 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
         path_count = 0
         seen_unoriented_paths = set([])
         paths_set = set([]) #the set of paths found
-
-##########################################################
-###########MOVED FROM OUTSIDE LOOP IN RECYCLE.PY
-        for l in long_self_loops:
-            seen_unoriented_paths.add(get_unoriented_sorted_str(l))
-        #    update_path_coverage_vals(l, COMP, SEQS)
-            update_path_coverage_vals(l, G, SEQS)
-            path_count += 1
-            paths_set.add(l)
 
 
 
@@ -685,8 +683,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         else: i += 1
 
                     seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                    update_path_coverage_vals(path, COMP, SEQS)#############################
-                    update_path_coverage_vals(path, G, SEQS) #############################
+                ######    update_path_coverage_vals(path, COMP, SEQS)#############################
+                    covs = update_path_coverage_vals(path, G, SEQS) #############################
+                    update_path_with_covs(path, COMP, covs)###############################
                     path_count += 1
                     paths_set.add(path)
 
@@ -724,8 +723,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         else: i += 1
 
                     seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                    update_path_coverage_vals(path, COMP, SEQS)########################
-                    update_path_coverage_vals(path, G, SEQS)##########################
+                    #### update_path_coverage_vals(path, COMP, SEQS)########################
+                    covs = update_path_coverage_vals(path, G, SEQS)##########################
+                    update_path_with_covs(path, COMP, covs) ####################################
                     path_count += 1
                     paths_set.add(path)
 
@@ -783,8 +783,9 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                         logger.info("\tCV: %4f" % curr_path_CV)
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
 
-                        update_path_coverage_vals(curr_path, COMP, SEQS)#########################
-                        update_path_coverage_vals(curr_path, G, SEQS)#####################
+                        ### update_path_coverage_vals(curr_path, COMP, SEQS)#########################
+                        covs = update_path_coverage_vals(curr_path, G, SEQS)#####################
+                        update_path_with_covs(curr_path, COMP, covs) ###################
                         path_count += 1
                         paths_set.add(curr_path)
                         break
