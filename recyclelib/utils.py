@@ -534,8 +534,10 @@ def get_contigs_of_mates(node, bamfile, G):
             to_remove.add(nd)
         # see if nd reachable by node or vice-versa
         # try both flipping to rc and switching source and target
-        elif not any([nx.has_path(G, node, nd), nx.has_path(G, rc_node(node),nd),
+        elif G.has_node(rc_node(node)) and not any([nx.has_path(G, node, nd), nx.has_path(G, rc_node(node),nd),
                 nx.has_path(G, nd, node), nx.has_path(G, nd, rc_node(node))]):
+            to_remove.add(nd)
+        elif not any([nx.has_path(G,node,nd),nx.has_path(G,nd,node)]):
             to_remove.add(nd)
     mate_tigs -= to_remove
 
@@ -757,7 +759,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                     seen_unoriented_paths.add(get_unoriented_sorted_str(p))
                     logger.info("%s: Num seen paths: %d" % (proc_name, len(seen_unoriented_paths)))
                     continue
-                logger.info("path: %s" % str(p))
+#                logger.info("path: %s" % str(p))
                 path_tuples.append((get_wgtd_path_coverage_CV(p,G,SEQS,max_k_val=max_k), p))
 ###################                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
 
