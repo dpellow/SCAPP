@@ -31,28 +31,41 @@ def parsePlasFlow(filename):
         names = []
         lengths = []
         scores = []
-        # read header
-        plasmid_inds = []
-        is_header = True
+        # # read header
+        # plasmid_inds = []
+        # is_header = True
+        # for line in f:
+        #     if is_header:
+        #         is_header = False
+        #         for i,v in enumerate(line.split('\t')):
+        #             if v == "contig_name":
+        #                 name_ind = i
+        #             elif v == "contig_length":
+        #                 len_ind = i
+        #             elif "plasmid" in v:
+        #                 plasmid_inds.append(i)
+        #         continue
+        #     # parse lines and store names, lengths, scores
+        #     fields = line.split('\t')
+        #     # convert name from fastg header format to single edge name
+        #     name = re.split(':|;',fields[name_ind])[0]
+        #     names.append(name)
+        #     lengths.append(int(fields[len_ind]))
+        #     score = sum([float(fields[x]) for x in plasmid_inds])
+        name = ''
         for line in f:
-            if is_header:
-                is_header = False
-                for i,v in enumerate(line.split('\t')):
-                    if v == "contig_name":
-                        name_ind = i
-                    elif v == "contig_length":
-                        len_ind = i
-                    elif "plasmid" in v:
-                        plasmid_inds.append(i)
-                continue
-            # parse lines and store names, lengths, scores
-            fields = line.split('\t')
-            # convert name from fastg header format to single edge name
-            name = re.split(':|;',fields[name_ind])[0]
-            names.append(name)
-            lengths.append(int(fields[len_ind]))
-            score = sum([float(fields[x]) for x in plasmid_inds])
-            scores.append(score)
+            if line[0] == '>':
+                edge_name = line.strip()[1:]
+                # convert name from fastg header format to single edge name
+                name = re.split(':|;',edge_name)[0]
+                names.append(name)
+                length = int(name.split('_')[3])
+                lengths.append(length)
+            else:
+                line = line.strip()
+                if len(line) > 0:
+                    score = float(line)
+                    scores.append(score)
 
     return names, lengths, scores
 

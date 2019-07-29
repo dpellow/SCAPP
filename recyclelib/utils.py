@@ -779,7 +779,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
                     if (curr_path_CV <= (max_CV) and \
                         is_good_cyc(curr_path,G,bamfile)):
 
-                        print(curr_path)
+                        print curr_path
 
                         logger.info("Added path %s" % ", ".join(curr_path))
                         logger.info("\tCV: %4f" % curr_path_CV)
@@ -805,7 +805,7 @@ def process_component(job_queue, result_queue, G, max_k, min_length, max_CV, SEQ
             print proc_name + ': ' + str(len(COMP.nodes())) + " nodes remain in component"
             logger.info("%s: Remaining nodes: %d" % (proc_name, len(COMP.nodes())))
             paths = enum_high_mass_shortest_paths(COMP,use_scores,use_genes,seen_unoriented_paths)
-            logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
+        ########    logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
 
         job_queue.task_done()
         result_queue.put(paths_set)
