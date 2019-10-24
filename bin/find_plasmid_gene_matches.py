@@ -32,17 +32,9 @@ def parse_user_input():
      help='csv list of paths to plasmid-specific protein fasta files',
      required=False, type=str
      )
-    parser.add_argument('--makeblastdb',
-     help='path of makeblastdb executable',
-     default="makeblastdb", type=str
-     )
-    parser.add_argument('--blastn',
-      help='path of blastn executable',
-      default="blastn", type=str
-     )
-    parser.add_argument('--tblastn',
-     help='path of tblastn executable',
-     default="tblastn", type=str
+    parser.add_argument('--ncbi_bin',
+     help='path of ncbi executables executable',
+     default="", type=str
      )
     parser.add_argument('-n', '--nthreads',
      help='number of threads for blastn and tblastn to use',
@@ -105,13 +97,16 @@ def blast_protein_file(pf, dbpath, tblastn, numthreads, outdir):
     outputfile = os.path.basename(pf) + "_blastdb.out"
     outputpath = os.path.join(outdir,outputfile)
 
+    num_tblastn_threads = min(numthreads, 8) # tblastn is buggy and seg faults randomly
+                                             # seems to do this less when there are fewer threads
+
     command = tblastn + " -db " + dbpath + " -db_gencode 11 -query " + pf + \
-                " -out " + outputpath + " -num_threads " + str(numthreads) + \
+                " -out " + outputpath + " -num_threads " + str(num_tblastn_threads) + \
                 ' -outfmt "6 qseqid sseqid length pident qlen slen evalue"'
 
     print "Running command: " + command
     try:
-        subprocess.check_call(command, shell=True) ######################
+        subprocess.check_call(command, shell=True)
     except CalledProcessError:
         print "Error running tblastn. Check paths to tblastn executable and input files."
         raise
@@ -139,9 +134,9 @@ def main():
     genefiles = args.genefiles
     proteinfiles = args.proteinfiles
     dbpath = args.blastdb
-    makeblastdb = args.makeblastdb
-    blastn = args.blastn
-    tblastn = args.tblastn
+    makeblastdb = os.path.join(args.ncbi_bin,'makeblastdb')
+    blastn = os.path.join(args.ncbi_bin,'blastn')
+    tblastn = os.path.join(args.ncbi_bin,'tblastn')
     numthreads = args.nthreads
     thresh = args.thresh
     clean = args.clean

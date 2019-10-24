@@ -54,19 +54,15 @@ def parsePlasFlow(filename):
         #     score = sum([float(fields[x]) for x in plasmid_inds])
         name = ''
         for line in f:
-            if line[0] == '>':
-                edge_name = line.strip()[1:]
-                # convert name from fastg header format to single edge name
-                name = re.split(':|;',edge_name)[0]
-                names.append(name)
-                length = int(name.split('_')[3])
-                lengths.append(length)
-            else:
-                line = line.strip()
-                if len(line) > 0:
-                    score = float(line)
-                    scores.append(score)
-
+            splt = line.strip().split('\t')
+            edge_name = splt[0]
+            # convert name from fastg header format to single edge name
+            name = re.split(':|;',edge_name)[0]
+            names.append(name)
+            length = int(name.split('_')[3])
+            lengths.append(length)
+            score = float(splt[1])
+	    scores.append(score)
     return names, lengths, scores
 
 

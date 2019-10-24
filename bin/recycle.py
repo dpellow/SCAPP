@@ -4,7 +4,7 @@ import argparse, os
 from recyclelib.utils import *
 import pysam
 import logging
-import multiprocessing
+#import multiprocessing
 import copy
 
 
@@ -98,6 +98,8 @@ def main():
     bampath = args.bam
     ISO = args.iso
 
+    bamfile = pysam.AlignmentFile(bampath)
+
     logfile = root+ext.replace(".fastg", ".log")
     logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
     logger = logging.getLogger("recycle_logger")
@@ -165,16 +167,22 @@ def main():
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS, bampath, max_k)
+    long_self_loops = get_long_self_loops(G, min_length, SEQS, bamfile, max_k)
 
-    final_paths_dict = {}
+#    final_paths_dict = {}
 
 
     for nd in long_self_loops:
         name = get_spades_type_name(path_count, nd,
         SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
-        final_paths_dict[name] = nd
+#        final_paths_dict[name] = nd
         path_count += 1
+
+        seq = get_seq_from_path(nd, SEQS, max_k_val=max_k)
+        print nd
+        print " "
+        if len(seq)>=min_length:
+            f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
 
     comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
 #   #below function is deprecated in nx 2.1....
@@ -185,14 +193,18 @@ def main():
 ###########################
 
     # set up the multiprocessing #########################################
-    job_queue = multiprocessing.JoinableQueue()
-    result_queue = multiprocessing.Queue()
-    workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores, use_genes)) for i in xrange(num_procs)]
-    for w in workers:
-        w.daemon = True
-        w.start()
-    njobs = 0
-    print("================== path, coverage levels when added ====================")
+    # job_queue = multiprocessing.JoinableQueue()
+    # result_queue = multiprocessing.Queue()
+    # workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores, use_genes)) for i in xrange(num_procs)]
+    # for w in workers:
+    #     w.daemon = True
+    #     w.start()
+    # njobs = 0
+
+    #multiprocessing to find shortest paths
+    pool = mp.Pool(num_procs)#,maxtasksperchild=10)
+
+    print("================== Added paths ====================")
 
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
@@ -211,44 +223,62 @@ def main():
         COMP = nx.DiGraph()
         COMP = c.to_directed() ############copy.deepcopy(c) ############ c.copy()
 
-        job_queue.put(COMP)
+#        job_queue.put(COMP)
         rc_nodes = [rc_node(n) for n in COMP.nodes()]
         VISITED_NODES.update(COMP.nodes())
         VISITED_NODES.update(rc_nodes)
-        njobs+=1
+#        njobs+=1
 
-    for i in xrange(num_procs):
-        job_queue.put(None) # signal that the jobs are all done - one for each process
-        print "%d jobs" % njobs
+
+############
+        path_set = process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
+        for p in path_set:
+            name = get_spades_type_name(path_count, p[0], SEQS, max_k, G, p[1])
+            seq = get_seq_from_path(p[0], SEQS, max_k_val=max_k)
+            print p[0]
+            print " "
+            if len(seq)>=min_length:
+                f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
+                f_cyc_paths.write(name + "\n" +str(p[0])+ "\n" +
+                 str([get_num_from_spades_name(n) for n in p[0]]) + "\n")
+            path_count += 1
+
+
+    pool.close()
+    pool.join() #TODO: Is this < ^ necessary? Is it better to maintain same pool through multiple runs??
+
+    # for i in xrange(num_procs):
+    #     job_queue.put(None) # signal that the jobs are all done - one for each process
+    #     print "%d jobs" % njobs
 ##################    job_queue.join() # wait till all processes return
 
     # done peeling
     # print final paths to screen
-    print("==================final_paths identities after updates: ================")
+#    print("==================final_paths identities after updates: ================")
 
     # write out sequences to fasta - long self-loops
-    for p in final_paths_dict.keys():
-        seq = get_seq_from_path(final_paths_dict[p], SEQS, max_k_val=max_k)
-        print(final_paths_dict[p])
-        print(" ")
-        if len(seq)>=min_length:
-            f_cycs_fasta.write(">" + p + "\n" + seq + "\n")
+    # for p in final_paths_dict.keys():
+    #     seq = get_seq_from_path(final_paths_dict[p], SEQS, max_k_val=max_k)
+    #     print(final_paths_dict[p])
+    #     print(" ")
+    #     if len(seq)>=min_length:
+    #         f_cycs_fasta.write(">" + p + "\n" + seq + "\n")
 
     ## All processes done
     ## Read results queues of each
-    for i in xrange(njobs):
-        paths_set = result_queue.get(block=True) ##################
+    # for i in xrange(njobs):
+    #     paths_set = result_queue.get(block=True) ##################
 #################        paths_set = result_queue.get()
-        for p in paths_set:
-            name = get_spades_type_name(path_count, p, SEQS, max_k, G)
-            covs = get_path_covs(p,G)
-            seq = get_seq_from_path(p, SEQS, max_k_val=max_k)
-            print(p)
-            if len(seq)>=min_length:
-                f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
-                f_cyc_paths.write(name + "\n" +str(p)+ "\n" + str(covs)
-                    + "\n" + str([get_num_from_spades_name(n) for n in p]) + "\n")
-            path_count += 1
+        # for p in paths_set:
+        #     name = get_spades_type_name(path_count, p, SEQS, max_k, G)
+        #     covs = get_path_covs(p,G)
+        #     seq = get_seq_from_path(p, SEQS, max_k_val=max_k)
+        #     print(p)
+        #     if len(seq)>=min_length:
+        #         f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
+        #         f_cyc_paths.write(name + "\n" +str(p)+ "\n" + str(covs)
+        #             + "\n" + str([get_num_from_spades_name(n) for n in p]) + "\n")
+        #     path_count += 1
 
 
 if __name__ == '__main__':
