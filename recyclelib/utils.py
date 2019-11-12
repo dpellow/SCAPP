@@ -104,6 +104,7 @@ def get_fastg_digraph(fastg_name):
     for name,seq,qual in readfq(fp):
         name = re.sub('[:,]'," ", name[:-1])
         lines.append(name)
+    fp.close()        
     G = nx.DiGraph()
     return nx.parse_adjlist(lines, create_using=G)
 
@@ -484,26 +485,6 @@ def get_spades_type_name(count, path, seqs, max_k_val, G, cov=None):
     return "_".join(info)
 
 
-#def count_node_mates(node, path, bamfile):
-#    """ Counts the number of off-node and on-node mate pairs of
-#    """
-#    off_path_count = 0
-#    on_path_count = 0
-#    if node[-1] == "'": node = node[:-1]
-#    try:
-#        for hit in bamfile.fetch(node):
-#            nref = bamfile.getrname(hit.next_reference_id)
-#            if nref != node:
-#                if nref in path or rc_node(nref) in path:
-#                    on_path_count += 1
-#                else:
-#                    off_path_count += 1
-#
-#    except ValueError:
-#        pass
-#
-#    return on_path_count, off_path_count
-
 def count_selfloop_mates(node,bamfile,G):
     """ Counts the number of off-node and on-node mate pairs of
         a self-loop node
@@ -618,14 +599,10 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
 
 #########################
 #TODO: calculate SEQS only for the component
-#TODO: get rid of G and use COMP
 def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores=False, use_genes=False, num_procs=1):
     """ run recycler for a single component of the graph
         use multiprocessing to process components in parallel
     """
-
-        ###############MOVED FROM OUTER CODE ON WHOLE G
-    if use_scores: remove_hi_confidence_chromosome(COMP) ##################################
 
     # initialize shortest path set considered
     path_count = 0
@@ -662,7 +639,8 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     else: i += 1
 
                 seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k)
+                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
+                #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
                 ######    update_path_coverage_vals(path, COMP, SEQS)#############################
                 covs = update_path_coverage_vals(path, G, SEQS, max_k) #############################
                 update_path_with_covs(path, COMP, covs)###############################
@@ -703,7 +681,8 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     else: i += 1
 
                 seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k)
+                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
+                #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
 
                     #### update_path_coverage_vals(path, COMP, SEQS)########################
                 covs = update_path_coverage_vals(path, G, SEQS, max_k)##########################
@@ -764,7 +743,8 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     logger.info("Added path %s" % ", ".join(curr_path))
                     logger.info("\tCV: %4f" % curr_path_CV)
                     seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
-                    before_cov, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k)
+                    before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
+                    #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
                     ### update_path_coverage_vals(curr_path, COMP, SEQS)#########################
                     covs = update_path_coverage_vals(curr_path, G, SEQS, max_k)#####################
                     update_path_with_covs(curr_path, COMP, covs) ###################
