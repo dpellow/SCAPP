@@ -3,7 +3,7 @@
 # get the plasmid gene matches in the assembled contigs, given lists of plasmid-specific genes and contigs
 # usage: python -c <contigs file> -o <output dir> -g <plasmid-specific gene files> -p <plasmid-specific protein files> -dg <blast gene database> -dp <blast protein database>
 
-import argparse, os, subprocess, re
+import argparse, glob, os, subprocess, re
 from subprocess import CalledProcessError
 
 def parse_user_input():
@@ -33,7 +33,7 @@ def parse_user_input():
      required=False, type=str
      )
     parser.add_argument('--ncbi_bin',
-     help='path of ncbi executables executable',
+     help='path of ncbi blast executables',
      default="", type=str
      )
     parser.add_argument('-n', '--nthreads',
@@ -52,13 +52,13 @@ def parse_user_input():
     return parser.parse_args()
 
 
-def create_db(infile,makeblastdb,outdir):
+def create_db(infile,ncbi_bin, outdir):
     ''' create a blast database for the infile
     '''
     outputfile = os.path.basename(infile) + ".blastdb"
     outputpath = os.path.join(outdir,outputfile)
 
-    command = makeblastdb + " -in " + infile + " -dbtype nucl -parse_seqids -out " + outputpath
+    command = os.path.join(ncbi_bin,'makeblastdb') + "  -in " + infile + " -dbtype nucl -parse_seqids -out " + outputpath
 
     print "Running command: " + command
     try:
@@ -70,14 +70,14 @@ def create_db(infile,makeblastdb,outdir):
     return outputpath
 
 
-def blast_gene_file(gf, dbpath, blastn, numthreads, outdir):
+def blast_gene_file(gf, dbpath, ncbi_bin, numthreads, outdir):
     ''' run blastn of the genefile against the blast database
     '''
 
     outputfile = os.path.basename(gf) + "_blastdb.out"
     outputpath = os.path.join(outdir,outputfile)
 
-    command = blastn + " -task megablast -db " + dbpath + " -query " + gf + \
+    command = os.path.join(ncbi_bin,'blastn') + " -task megablast -db " + dbpath + " -query " + gf + \
                 " -out " + outputpath + " -num_threads " + str(numthreads) + \
                 ' -outfmt "6 qseqid sseqid length pident qlen slen evalue"'
 
@@ -91,16 +91,16 @@ def blast_gene_file(gf, dbpath, blastn, numthreads, outdir):
     return outputpath
 
 
-def blast_protein_file(pf, dbpath, tblastn, numthreads, outdir):
+def blast_protein_file(pf, dbpath, ncbi_bin, numthreads, outdir):
     ''' same, for protein lists
     '''
     outputfile = os.path.basename(pf) + "_blastdb.out"
     outputpath = os.path.join(outdir,outputfile)
 
-    num_tblastn_threads = min(numthreads, 8) # tblastn is buggy and seg faults randomly
-                                             # seems to do this less when there are fewer threads
+    num_tblastn_threads = min(numthreads, 4) # tblastn is buggy and seg faults randomly
+                                                 # seems to do this less when there are fewer threads
 
-    command = tblastn + " -db " + dbpath + " -db_gencode 11 -query " + pf + \
+    command = os.path.join(ncbi_bin,'tblastn') + " -db " + dbpath + " -db_gencode 11 -query " + pf + \
                 " -out " + outputpath + " -num_threads " + str(num_tblastn_threads) + \
                 ' -outfmt "6 qseqid sseqid length pident qlen slen evalue"'
 
@@ -126,25 +126,11 @@ def get_blast_hits(blastfile, hit_contigs_set, thresh=0.75):
             if percentid > thresh*100 and float(matchlen)/float(genelen) > thresh:
                 hit_contigs_set.add(contig)
 
-
-def main():
-    args = parse_user_input()
-    infile = args.fasta
-    outdir = args.output
-    genefiles = args.genefiles
-    proteinfiles = args.proteinfiles
-    dbpath = args.blastdb
-    makeblastdb = os.path.join(args.ncbi_bin,'makeblastdb')
-    blastn = os.path.join(args.ncbi_bin,'blastn')
-    tblastn = os.path.join(args.ncbi_bin,'tblastn')
-    numthreads = args.nthreads
-    thresh = args.thresh
-    clean = args.clean
-
+def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_bin,numthreads=1,clean=True,thresh=0.75):
     # create blast databases for the contigs
     if dbpath is None:
         print "No blast db provided, creating one"
-        dbpath = create_db(infile, makeblastdb, outdir)
+        dbpath = create_db(infile, ncbi_bin, outdir)
 
     # run BLAST searches for the genes in the gene lists
     genefiles_blast_results = []
@@ -154,7 +140,7 @@ def main():
         print "Running blast search for gene (nt) sequences in blast db"
         genefiles_list = genefiles.split(',')
         for gf in genefiles_list:
-            gf_blastpath = blast_gene_file(gf, dbpath, blastn, numthreads, outdir)
+            gf_blastpath = blast_gene_file(gf, dbpath, ncbi_bin, numthreads, outdir)
             genefiles_blast_results.append(gf_blastpath)
 
     # run BLAST searches for the proteins in the protein lists
@@ -162,7 +148,7 @@ def main():
         print "Running blast search for protein (aa) sequences in blast db"
         protfiles_list = proteinfiles.split(',')
         for pf in protfiles_list:
-            pf_blastpath = blast_protein_file(pf, dbpath, tblastn, numthreads, outdir)
+            pf_blastpath = blast_protein_file(pf, dbpath, ncbi_bin, numthreads, outdir)
             protfiles_blast_results.append(pf_blastpath)
 
     # parse the output files to create set of contig hits
@@ -175,7 +161,7 @@ def main():
     # write out the hit contigs to output file
     hit_contigs_list = list(hit_contigs_set)
     print "{} contigs hit".format(len(hit_contigs_list))
-    outputfile = os.path.join(outdir, "hit_contigs.out")
+    outputfile = os.path.join(outdir, "hit_seqs.out")
     print "Writing list of hit contigs in: " + outputfile
     with open(outputfile,'w+') as o:
         o.write('\n'.join(hit_contigs_list))
@@ -183,11 +169,26 @@ def main():
     # remove intermediate files
     if clean:
         print "Removing intermediate files..."
-        files_list = ' '.join(genefiles_blast_results) + ' ' + ' '.join(protfiles_blast_results)
-        if infile: files_list += ' ' + dbpath + "*" # we created the blast db
-        command = "rm " + files_list
-        print "Running command: " + command
-        subprocess.call(command, shell=True)
+        for f in genefiles_blast_results: os.remove(f)
+        for f in protfiles_blast_results: os.remove(f)
+        if infile:  # we created the blast db
+            for f in glob.glob(dbpath+'*'): os.remove(f)
+
+
+
+def main():
+    args = parse_user_input()
+    infile = args.fasta
+    outdir = args.output
+    genefiles = args.genefiles
+    proteinfiles = args.proteinfiles
+    dbpath = args.blastdb
+    ncbi_bin = args.ncbi_bin
+    numthreads = args.nthreads
+    thresh = args.thresh
+    clean = args.clean
+
+    find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_bin,numthreads,clean,thresh)
 
 
 if __name__=='__main__':

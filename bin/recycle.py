@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 
 import argparse, os
-from recyclelib.utils import *
-import pysam
-import logging
-#import multiprocessing
 import copy
+import logging
+import multiprocessing as mp
+import pysam
 
+from recyclelib.utils import *
+
+logger = logging.getLogger("recycle_logger")
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
@@ -39,7 +41,7 @@ def parse_user_input():
         )
     parser.add_argument('-o','--output_dir',
         help='Output directory',
-        required=False, type=str
+        required=True, type=str
         )
     parser.add_argument('-p','--num_processes',
         help='Number of processes to use',
@@ -56,58 +58,24 @@ def parse_user_input():
 
     return parser.parse_args()
 
+def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
+                    genes_file, use_genes, scores_file, use_scores, \
+                    max_CV, min_length, ISO=False):
+    ''' Run run_recycler2'''
 
-def main():
-
-    ####### entry point  ##############
-
-    ###################################
-    # read in fastg, load graph, create output handle
-    args = parse_user_input()
-    num_procs = args.num_processes
-    fastg = args.graph
-    max_CV = args.max_CV
-    max_k = args.max_k
-    min_length = args.length
-    fp = open(fastg, 'r')
-    files_dir = os.path.dirname(fp.name)
-    if args.scores:
-        scores_file = args.scores
-        use_scores = True
-    else: use_scores = False
-    if args.gene_hits:
-        genes_file = args.gene_hits
-        use_genes = True
-    else: use_genes = False
-    # output 1 - fasta of sequences
-    if args.output_dir:
-        if not os.path.exists(args.output_dir):
-            os.mkdir(args.output_dir)
-        basename = os.path.basename(fp.name)
-        out_fp = os.path.join(args.output_dir, basename)
-        (root, ext) = os.path.splitext(out_fp)
-    else:
-        (root,ext) = os.path.splitext(fp.name)
-
-    fasta_ofile = root + ext.replace(".fastg", ".cycs.fasta")
-    f_cycs_fasta = open(fasta_ofile, 'w')
-    # output 2 - file containing path name (corr. to fasta),
-    # path, coverage levels when path is added
-    cycs_ofile = root + ext.replace(".fastg", ".cycs.paths_w_cov.txt")
-    f_cyc_paths = open(cycs_ofile, 'w')
-    bampath = args.bam
-    ISO = args.iso
-
+    basename, _ = os.path.splitext(os.path.basename(fastg))
+    fasta_ofile = os.path.join(outdir, basename+".cycs.fasta")
+    cycs_ofile = os.path.join(outdir, basename+".cycs.paths_w_cov.txt")
+    loop_ofile = os.path.join(outdir,basename+".self_loops.fasta")
+    f_cycs_fasta = open(fasta_ofile, 'w') # output 1 - fasta of sequences
+    f_cyc_paths = open(cycs_ofile, 'w') # output 2 - file containing path name (corr. to fasta),
+    f_long_self_loops = open(loop_ofile,'w') # output 3 - file of self-loop fasta sequences
+                                        # path, coverage levels when path is added
     bamfile = pysam.AlignmentFile(bampath)
 
-    logfile = root+ext.replace(".fastg", ".log")
-    logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
-    logger = logging.getLogger("recycle_logger")
-
     # graph processing begins
-
     G = get_fastg_digraph(fastg)
-####################
+
     logger.info("Removing %d isolate nodes" % len(list(nx.isolates(G))))
     G.remove_nodes_from(list(nx.isolates(G)))
 ######### NOTE: if don't require circular path, should leave long isolates in
@@ -123,59 +91,26 @@ def main():
         thresh = np.percentile(cov_vals, 75)
 
     logger.info("Coverage threshold:%4f" % thresh)
-    print(MED_COV, STD_COV, thresh)
+    print MED_COV, STD_COV, thresh
     path_count = 0
     SEQS = get_fastg_seqs_dict(fastg,G)
 
 
-    # #################################################
-    # # Experiment with max flow
-    # sinks = [nd for nd in G.nodes() if G.out_degree(nd) == 0]
-    # sources = [nd for nd in G.nodes() if G.in_degree(nd) == 0]
-    # G.add_node("super_source")
-    # G.add_node("super_sink")
-    # for e in G.edges():
-    #     G.add_edge(e[0], e[1], capacity = np.ceil(get_cov_from_spades_name_and_graph(e[0],G)))
-    # for nd in sources:
-    #     G.add_edge("super_source",nd)
-    # for nd in sinks:
-    #     G.add_edge(nd,"super_sink", capacity = np.ceil(get_cov_from_spades_name_and_graph(nd,G)))
-    # flow, flow_dict = nx.maximum_flow(G, "super_source", "super_sink")
-    # G.remove_node("super_sink")
-    # G.remove_node("super_source")
-    # logger.info("Comp flow")
-    # with open("flow.csv", 'w+') as o:
-    #     for e in G.edges():
-    #         o.write(e[0].split('_')[1]+ ',' + str(flow_dict[e[0]][e[1]])+'\n')
-    # for e in G.edges():
-    #     logger.info("(%s, %s) - flow: %f, capacity: %f" % (e[0], e[1], flow_dict[e[0]][e[1]], G.edges[e]['capacity']))
-
-    ##############################################################################
-
-
-#####################
     # add a score to every node, remove long nodes that are most probably chrom.
     if use_scores:
         get_node_scores(scores_file,G)
-########### MOVE THIS TO COMPONENT
-######        remove_hi_confidence_chromosome(G)
-        #TODO: take into account how to discount coverage of these nodes from their neighbours
+
     # keep track of the nodes that have plasmid genes on them
     if use_genes:
         get_gene_nodes(genes_file,G)
-#####################
 
     # gets set of long simple loops, removes short
     # simple loops from graph
     long_self_loops = get_long_self_loops(G, min_length, SEQS, bamfile, max_k)
 
-#    final_paths_dict = {}
-
-
     for nd in long_self_loops:
         name = get_spades_type_name(path_count, nd,
         SEQS, max_k, G, get_cov_from_spades_name(nd[0]))
-#        final_paths_dict[name] = nd
         path_count += 1
 
         seq = get_seq_from_path(nd, SEQS, max_k_val=max_k)
@@ -183,55 +118,76 @@ def main():
         print " "
         if len(seq)>=min_length:
             f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
+            f_long_self_loops.write(">" + name + "\n" + seq + "\n")
+            f_cyc_paths.write(name + "\n" +str(nd[0])+ "\n" +
+             str(get_num_from_spades_name(nd[0])) + "\n")
 
-    comps = (G.subgraph(c) for c in nx.strongly_connected_components(G))
-#   #below function is deprecated in nx 2.1....
-    #comps = nx.strongly_connected_component_subgraphs(G)
+    comps = (G.subgraph(c).copy() for c in nx.strongly_connected_components(G))
+    #   #below function is deprecated in nx 2.1....
+        #comps = nx.strongly_connected_component_subgraphs(G)
+
+    if use_scores:
+        # Remove nodes that are most likely chromosomal
+        # This may
+        smaller_comps = set()
+        for comp in comps:
+            remove_hi_confidence_chromosome(comp)
+            smaller_comps.update((comp.subgraph(c).copy() for c in nx.strongly_connected_components(comp)))
+        comps = smaller_comps
+
 
     ###################################
     # iterate through SCCs looking for cycles
 ###########################
 
-    # set up the multiprocessing #########################################
-    # job_queue = multiprocessing.JoinableQueue()
-    # result_queue = multiprocessing.Queue()
-    # workers = [multiprocessing.Process(target=process_component, args=(job_queue,result_queue, G, max_k, min_length, max_CV, SEQS, thresh, bampath, use_scores, use_genes)) for i in xrange(num_procs)]
-    # for w in workers:
-    #     w.daemon = True
-    #     w.start()
-    # njobs = 0
-
     #multiprocessing to find shortest paths
-    pool = mp.Pool(num_procs)#,maxtasksperchild=10)
+    pool = mp.Pool(num_procs)
 
-    print("================== Added paths ====================")
+    print "================== Added paths ===================="
 
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
+
     for c in sorted(comps,key=len):
 
 	    # check if any nodes in comp in visited nodes
         # if so continue
         for node in c.nodes():
-             if node in VISITED_NODES: # I assume the below is an error?
-        #     if c in VISITED_NODES:
+             if node in VISITED_NODES:
                  redundant = True
                  break
         if redundant:
              redundant = False
              continue # have seen the RC version of component
         COMP = nx.DiGraph()
-        COMP = c.to_directed() ############copy.deepcopy(c) ############ c.copy()
+        COMP = c.to_directed()
 
-#        job_queue.put(COMP)
         rc_nodes = [rc_node(n) for n in COMP.nodes()]
         VISITED_NODES.update(COMP.nodes())
         VISITED_NODES.update(rc_nodes)
-#        njobs+=1
+
+        large_comp_thresh = 50000#50000
+        if True:#len(COMP.nodes()) < large_comp_thresh:
+            path_set = process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
+
+        else: # break the component up into coverage bins
+            path_set = set()
+            logger.info("{} nodes in component. Breaking into bins by coverage".format(len(COMP.nodes())))
+            nodes_cov_list = sorted([get_cov_from_spades_name_and_graph(n,COMP) for n in COMP.nodes()])
+            for min_ind in range(0,len(nodes_cov_list),large_comp_thresh//2):
+                logger.info("Starting new bin")
+                max_ind = min_ind + large_comp_thresh
+                max_ind = min(max_ind,len(nodes_cov_list)-1)
+                logger.info("Min ind: {} Max ind: {}. Min coverage: {} Max coverage: {}".format(\
+                                        min_ind, max_ind, nodes_cov_list[min_ind], nodes_cov_list[max_ind]))
+                bin_nodes = [nd for nd in COMP.nodes() \
+                            if get_cov_from_spades_name_and_graph(nd,G) >= nodes_cov_list[min_ind] \
+                            and get_cov_from_spades_name_and_graph(nd,G) <= nodes_cov_list[max_ind]]
+
+                binned_comp = G.subgraph(bin_nodes).copy()
+                path_set |= process_component(binned_comp, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
 
 
-############
-        path_set = process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
         for p in path_set:
             name = get_spades_type_name(path_count, p[0], SEQS, max_k, G, p[1])
             seq = get_seq_from_path(p[0], SEQS, max_k_val=max_k)
@@ -243,42 +199,39 @@ def main():
                  str([get_num_from_spades_name(n) for n in p[0]]) + "\n")
             path_count += 1
 
-
     pool.close()
     pool.join() #TODO: Is this < ^ necessary? Is it better to maintain same pool through multiple runs??
+    f_cycs_fasta.close()
+    f_cyc_paths.close()
+    f_long_self_loops.close()
 
-    # for i in xrange(num_procs):
-    #     job_queue.put(None) # signal that the jobs are all done - one for each process
-    #     print "%d jobs" % njobs
-##################    job_queue.join() # wait till all processes return
 
-    # done peeling
-    # print final paths to screen
-#    print("==================final_paths identities after updates: ================")
+def main():
 
-    # write out sequences to fasta - long self-loops
-    # for p in final_paths_dict.keys():
-    #     seq = get_seq_from_path(final_paths_dict[p], SEQS, max_k_val=max_k)
-    #     print(final_paths_dict[p])
-    #     print(" ")
-    #     if len(seq)>=min_length:
-    #         f_cycs_fasta.write(">" + p + "\n" + seq + "\n")
+    ####### entry point  ##############
 
-    ## All processes done
-    ## Read results queues of each
-    # for i in xrange(njobs):
-    #     paths_set = result_queue.get(block=True) ##################
-#################        paths_set = result_queue.get()
-        # for p in paths_set:
-        #     name = get_spades_type_name(path_count, p, SEQS, max_k, G)
-        #     covs = get_path_covs(p,G)
-        #     seq = get_seq_from_path(p, SEQS, max_k_val=max_k)
-        #     print(p)
-        #     if len(seq)>=min_length:
-        #         f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
-        #         f_cyc_paths.write(name + "\n" +str(p)+ "\n" + str(covs)
-        #             + "\n" + str([get_num_from_spades_name(n) for n in p]) + "\n")
-        #     path_count += 1
+    ###################################
+    # read in fastg, load graph, create output handle
+    args = parse_user_input()
+    num_procs = args.num_processes
+    fastg = args.graph
+    max_CV = args.max_CV
+    max_k = args.max_k
+    min_length = args.length
+    files_dir = os.path.dirname(fp.name)
+    if args.scores:
+        use_scores = True
+    else: use_scores = False
+    if args.gene_hits:
+        use_genes = True
+    else: use_genes = False
+
+    bampath = args.bam
+    ISO = args.iso
+
+    run_recycler2(fastg, args.output_dir, bampath, num_procs, max_k, \
+                    args.gene_hits, use_genes, args.scores, use_scores, \
+                    max_CV, min_length, ISO)
 
 
 if __name__ == '__main__':

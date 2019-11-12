@@ -18,7 +18,8 @@ def parse_user_input():
 
     return parser.parse_args()
 
-def parse_lines(fastg, ofile):
+def parse_lines(fastg, ofile_name):
+    ofile = open(ofile_name, 'w')
     fp = open(fastg, 'r')
     seen = set() ##
     for name,seq,qual in readfq(fp):
@@ -28,11 +29,12 @@ def parse_lines(fastg, ofile):
         else: seen.add(name)
         line = ">"+name+"\n"+seq+"\n"
         ofile.write(line)
+    fp.close()
+    ofile.close()
 
 if __name__=='__main__':
     args = parse_user_input()
     fastg = args.graph
-    fp = open(fastg, 'r')
     files_dir = os.path.dirname(fp.name)
 
     # output 1 - fasta of sequences
@@ -42,5 +44,4 @@ if __name__=='__main__':
         (root,ext) = os.path.splitext(fp.name)
         fasta_ofile = root + ext.replace(".fastg", ".nodes.fasta")
 
-    f_nodes_fasta = open(fasta_ofile, 'w')
-    parse_lines(fastg, f_nodes_fasta)
+    parse_lines(fastg, f_ofile)

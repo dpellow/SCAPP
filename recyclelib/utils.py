@@ -10,7 +10,6 @@ from multiprocessing import Manager
 
 import time
 
-
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 logger = logging.getLogger("recycle_logger")
 
@@ -50,7 +49,7 @@ def readfq(fp): # this is a generator function
 
 
 def get_node_scores(scores_file,G):
-    """ Write the PlasFlow scores into each node in the graph
+    """ Write the plasmid scores into each node in the graph
     """
     scores = {}
     with open(scores_file) as f:
@@ -104,7 +103,6 @@ def get_fastg_digraph(fastg_name):
     for name,seq,qual in readfq(fp):
         name = re.sub('[:,]'," ", name[:-1])
         lines.append(name)
-    fp.close()        
     G = nx.DiGraph()
     return nx.parse_adjlist(lines, create_using=G)
 
@@ -239,6 +237,7 @@ def update_path_coverage_vals(path, G, seqs, max_k_val=55,):
     mean, _ = get_path_mean_std(path, G, seqs, max_k_val) ## NOTE: CAN WE STILL GUARANTEE CONVERGENCE WHEN DISCOUNTING COVERAGE ??!
     covs = get_path_covs(path,G)
     new_covs = covs - mean
+    logger.info("Path: %s Mean: %s Covs: %s" % (str(path),str(mean),str(covs) ))
     for i in range(len(path)):
         if new_covs[i] > 0:
             update_node_coverage(G,path[i],new_covs[i])
@@ -321,21 +320,16 @@ def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
             G.nodes[nd]['score']<score_thresh:
             to_remove.append(nd)
             to_remove.append(rc_node(nd))
-    #print ("Removing " + str(len(set(to_remove))) + " nodes")
     G.remove_nodes_from(to_remove)
     logger.info("Removed %d long, likely chromosomal nodes" % len(set(to_remove)))
 
 def get_hi_conf_plasmids(G, len_thresh=10000, score_thresh=0.9):
     """ Return a list of nodes that are likely plasmids
     """
-    try:
-      hi_conf_plasmids = [nd for nd in G.nodes() if (get_length_from_spades_name(nd) > len_thresh and \
+
+    hi_conf_plasmids = [nd for nd in G.nodes() if (get_length_from_spades_name(nd) > len_thresh and \
                         G.nodes[nd]['score'] > score_thresh)]
-    except:
-      print G.nodes()
-      for nd in G.nodes():
-        print nd
-        if G.nodes[nd]['score'] > score_thresh: print nd
+
     logger.info("Found %d long, likely plasmid nodes" % len(hi_conf_plasmids))
     return hi_conf_plasmids
 
@@ -485,6 +479,26 @@ def get_spades_type_name(count, path, seqs, max_k_val, G, cov=None):
     return "_".join(info)
 
 
+#def count_node_mates(node, path, bamfile):
+#    """ Counts the number of off-node and on-node mate pairs of
+#    """
+#    off_path_count = 0
+#    on_path_count = 0
+#    if node[-1] == "'": node = node[:-1]
+#    try:
+#        for hit in bamfile.fetch(node):
+#            nref = bamfile.getrname(hit.next_reference_id)
+#            if nref != node:
+#                if nref in path or rc_node(nref) in path:
+#                    on_path_count += 1
+#                else:
+#                    off_path_count += 1
+#
+#    except ValueError:
+#        pass
+#
+#    return on_path_count, off_path_count
+
 def count_selfloop_mates(node,bamfile,G):
     """ Counts the number of off-node and on-node mate pairs of
         a self-loop node
@@ -520,7 +534,6 @@ def get_contigs_of_mates(node, bamfile, G):
     except ValueError:
         pass
 
-#    print "before removal", mate_tigs
     to_remove = set([])
     for nd in mate_tigs:
         if (G.in_degree(nd)==0 and G.out_degree(nd)==0) or \
@@ -550,13 +563,6 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
       sing_nodes.add(node)
     if len(sing_nodes)==0: return True
 
-    # check if any nodes seem not to match path
-#    for nd in sing_nodes:
-#        num_on_path, num_off_path = count_node_mates(nd, path, bamfile)
-#        if float(num_off_path) > off_path_thresh*float(num_on_path + num_off_path):
-#            logger.info("Node %s has most mates off path" % nd)
-#            return False
-
     non_path_dominated_nodes = 0
 
     for nd in sing_nodes:
@@ -576,33 +582,17 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
         logger.info("Too many nodes with majority of mates not on path")
         return False
     else: return True
-    ###########################################################################
-    #     if num_mates_in_path < num_mates_not_in_path:
-    #         logger.info("Fewer mates in path than not")
-    #     tot_in_path += num_mates_in_path # Note, this double counts in-path mates
-    #     tot_not_in_path += num_mates_not_in_path
-    #
-    # # avoid divide by zeros
-    # if tot_not_in_path == 0: return True
-    # elif tot_in_path == 0:
-    #     # TODO: or add this threshold in the other case too?
-    #     if float(tot_not_in_path)/float(len(sing_nodes)) > 2*mate_ratio_thresh: # want to be stricter in this case
-    #         return False
-    #     else: return True
-    #
-    # if float(tot_not_in_path)/(float(tot_in_path)/2.0) > mate_ratio_thresh:
-    #     logger.info("Too many mates not in path")
-    #     return False
-    # else: return True
-    ###########################################################################
-
 
 #########################
 #TODO: calculate SEQS only for the component
+#TODO: get rid of G and use COMP
 def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores=False, use_genes=False, num_procs=1):
     """ run recycler for a single component of the graph
         use multiprocessing to process components in parallel
     """
+
+        ###############MOVED FROM OUTER CODE ON WHOLE G
+    if use_scores: remove_hi_confidence_chromosome(COMP) ##################################
 
     # initialize shortest path set considered
     path_count = 0
@@ -639,9 +629,9 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     else: i += 1
 
                 seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
-                #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
-                ######    update_path_coverage_vals(path, COMP, SEQS)#############################
+                #TODO: SHOULD IT BE G OR COMP??
+                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k)
+#                before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k)
                 covs = update_path_coverage_vals(path, G, SEQS, max_k) #############################
                 update_path_with_covs(path, COMP, covs)###############################
                 path_count += 1
@@ -663,7 +653,6 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
             if path is None: continue
             # check coverage variation
             path_CV = get_wgtd_path_coverage_CV(path,G,SEQS,max_k_val=max_k)
-#######################                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
             logger.info("Hi conf path: %s, CV: %4f" % (str(path),path_CV))
 
             if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
@@ -681,10 +670,8 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     else: i += 1
 
                 seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
-                #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
-
-                    #### update_path_coverage_vals(path, COMP, SEQS)########################
+                before_cov, _ = get_path_mean_std(path, G, SEQS, max_k)
+                #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k)
                 covs = update_path_coverage_vals(path, G, SEQS, max_k)##########################
                 update_path_with_covs(path, COMP, covs) ####################################
                 path_count += 1
@@ -719,9 +706,7 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                 seen_unoriented_paths.add(get_unoriented_sorted_str(p))
                 logger.info("Num seen paths: %d" % (len(seen_unoriented_paths)))
                 continue
-#                logger.info("path: %s" % str(p))
             path_tuples.append((get_wgtd_path_coverage_CV(p,G,SEQS,max_k_val=max_k), p))
-###################                path_tuples.append((get_wgtd_path_coverage_CV(p,COMP,SEQS,max_k_val=max_k), p))
 
         logger.info("Num path tuples: %d" % (len(path_tuples)))
         if(len(path_tuples)==0): break
@@ -738,14 +723,12 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                 ## only report if low CV and matches mate pair info
                 if (curr_path_CV <= (max_CV) and \
                     is_good_cyc(curr_path,G,bamfile)):
-                    print curr_path
 
                     logger.info("Added path %s" % ", ".join(curr_path))
                     logger.info("\tCV: %4f" % curr_path_CV)
                     seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
-                    before_cov, _ = get_path_mean_std(path, G, SEQS, max_k) ###########
-                    #before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k) #######
-                    ### update_path_coverage_vals(curr_path, COMP, SEQS)#########################
+                    #before_cov, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k)
+                    before_cov, _ = get_path_mean_std(curr_path, G, SEQS, max_k)
                     covs = update_path_coverage_vals(curr_path, G, SEQS, max_k)#####################
                     update_path_with_covs(curr_path, COMP, covs) ###################
                     path_count += 1
@@ -759,15 +742,11 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                         break # sorted by CV
                     else: # not good mate pairs
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
-                #        logger.info("Num seen paths: %d" % (len(seen_unoriented_paths)))
 
         # recalculate paths on the component
         print str(len(COMP.nodes())) + " nodes remain in component"
         logger.info("Remaining nodes: %d" % (len(COMP.nodes())))
         paths = enum_high_mass_shortest_paths(COMP, pool, use_scores,use_genes,seen_unoriented_paths)
-        ########    logger.info("%s: Shortest paths: %s" % (proc_name, str(paths)))
-
-
 
     #end while
     return paths_set
