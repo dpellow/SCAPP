@@ -91,7 +91,7 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
         thresh = np.percentile(cov_vals, 75)
 
     logger.info("Coverage threshold:%4f" % thresh)
-    print MED_COV, STD_COV, thresh
+    print(MED_COV, STD_COV, thresh)
     path_count = 0
     SEQS = get_fastg_seqs_dict(fastg,G)
 
@@ -114,8 +114,8 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
         path_count += 1
 
         seq = get_seq_from_path(nd, SEQS, max_k_val=max_k)
-        print nd
-        print " "
+        print(nd)
+        print(" ")
         if len(seq)>=min_length:
             f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
             f_long_self_loops.write(">" + name + "\n" + seq + "\n")
@@ -143,7 +143,7 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
     #multiprocessing to find shortest paths
     pool = mp.Pool(num_procs)
 
-    print "================== Added paths ===================="
+    print("================== Added paths ====================")
 
     VISITED_NODES = set([]) # used to avoid problems due to RC components
     redundant = False
@@ -191,8 +191,8 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
         for p in path_set:
             name = get_spades_type_name(path_count, p[0], SEQS, max_k, G, p[1])
             seq = get_seq_from_path(p[0], SEQS, max_k_val=max_k)
-            print p[0]
-            print " "
+            print(p[0])
+            print(" ")
             if len(seq)>=min_length:
                 f_cycs_fasta.write(">" + name + "\n" + seq + "\n")
                 f_cyc_paths.write(name + "\n" +str(p[0])+ "\n" +

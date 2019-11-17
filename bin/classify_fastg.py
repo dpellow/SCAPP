@@ -68,8 +68,8 @@ def main(args):
 
     classify(infile, outfile, n_procs)
 
-    print "Finished classifying"
-    print "Class scores written in: {}".format(outfile)
+    print("Finished classifying")
+    print("Class scores written in: {}".format(outfile))
 
 if __name__=='__main__':
     args = parse_user_input()

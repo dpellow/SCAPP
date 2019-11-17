@@ -744,7 +744,7 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                         seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
 
         # recalculate paths on the component
-        print str(len(COMP.nodes())) + " nodes remain in component"
+        print(str(len(COMP.nodes())) + " nodes remain in component")
         logger.info("Remaining nodes: %d" % (len(COMP.nodes())))
         paths = enum_high_mass_shortest_paths(COMP, pool, use_scores,use_genes,seen_unoriented_paths)
 

@@ -113,7 +113,7 @@ def main():
             ncbi_path = config["NCBI_PATH"]
             samtools_path = config["SAMTOOLS_PATH"]
     except:
-        print "Error loading config variables. Please check config.json file"
+        print("Error loading config variables. Please check config.json file")
         raise
 
     int_dir = os.path.join(outdir, 'intermediate_files')
@@ -146,7 +146,7 @@ def main():
         nodes_fasta = os.path.join(int_dir, 'assembly_graph.nodes.fasta')
         make_fasta_from_fastg.parse_lines(fastg, nodes_fasta)
 
-        print "Creating BAM file of read mappings with BWA"
+        print("Creating BAM file of read mappings with BWA")
         time_start = time.time()
         logger.info("Creating BAM file")
 
@@ -209,7 +209,7 @@ def main():
 
     # Step 2: Classify contigs using PlasClass (default) and parse scores
     if use_scores and plasclass_file is None and plasflow_file is None:
-        print "Getting scores of graph nodes"
+        print("Getting scores of graph nodes")
         logger.info("Using PlasClass to obtain sequence scores")
         time_start = time.time()
         plasclass_file = os.path.join(int_dir, 'plasclass.out')
@@ -241,7 +241,7 @@ def main():
     # Step 3: BLAST for plasmid-specific genes and parse BLAST output
     gene_hits_path = None
     if use_genes:
-        print 'Finding plasmid-specific genes with BLAST'
+        print('Finding plasmid-specific genes with BLAST')
         time_start = time.time()
         logger.info('Finding plasmid-specific genes with BLAST')
         # don't want to clutter with more print statements
@@ -265,7 +265,7 @@ def main():
             os.dup2(new_stdout, sys.stdout.fileno())
             os.dup2(new_stderr, sys.stderr.fileno())
             stdfile.close()
-            print "Error finding plasmid genes - check BLAST output file (blast_std.log)"
+            print("Error finding plasmid genes - check BLAST output file (blast_std.log)")
             raise
         os.dup2(new_stdout, sys.stdout.fileno())
         os.dup2(new_stderr, sys.stderr.fileno())
@@ -276,7 +276,7 @@ def main():
             time_end-time_start))
 
     # Step 4: Run Recycler2 annotated-assembly-graph-based plasmid assembly
-    print "Starting Recycler2 plasmid finding"
+    print("Starting Recycler2 plasmid finding")
     logger.info("Starting plasmid finding")
     time_start = time.time()
     recycle.run_recycler2(fastg, outdir, bamfile, num_procs, max_k, \
@@ -293,7 +293,7 @@ def main():
 
     # Step 5: Post-process filtering: BLAST output plasmids for plasmid-specific genes
     if use_genes:
-        print "Filtering plasmids by plasmid-specific genes"
+        print("Filtering plasmids by plasmid-specific genes")
         logger.info("Filtering plasmids by plasmid-specific genes")
         time_start = time.time()
 
@@ -318,7 +318,7 @@ def main():
             os.dup2(new_stdout, sys.stdout.fileno())
             os.dup2(new_stderr, sys.stderr.fileno())
             stdfile.close()
-            print "Error filtering by plasmid genes. Check BLAST output file (blast_std.log)"
+            print("Error filtering by plasmid genes. Check BLAST output file (blast_std.log)")
             raise
 
         os.dup2(new_stdout, sys.stdout.fileno())
@@ -333,7 +333,7 @@ def main():
 
     # Step 6: Post-process filtering: Classify gene filtered plasmids
     if use_scores:
-        print "Getting scores of gene filtered plasmids"
+        print("Getting scores of gene filtered plasmids")
         logger.info("Using PlasClass to obtain scores of cycles")
         time_start = time.time()
         plasclass_filtered_file = os.path.join(int_dir, 'plasclass_filtered.out')

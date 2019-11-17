@@ -60,11 +60,11 @@ def create_db(infile,ncbi_bin, outdir):
 
     command = os.path.join(ncbi_bin,'makeblastdb') + "  -in " + infile + " -dbtype nucl -parse_seqids -out " + outputpath
 
-    print "Running command: " + command
+    print("Running command: " + command)
     try:
         subprocess.check_call(command, shell=True)
     except CalledProcessError:
-        print "Error creating blast database. Check path to makeblastdb executable."
+        print("Error creating blast database. Check path to makeblastdb executable.")
         raise
 
     return outputpath
@@ -81,11 +81,11 @@ def blast_gene_file(gf, dbpath, ncbi_bin, numthreads, outdir):
                 " -out " + outputpath + " -num_threads " + str(numthreads) + \
                 ' -outfmt "6 qseqid sseqid length pident qlen slen evalue"'
 
-    print "Running command: " + command
+    print("Running command: " + command)
     try:
         subprocess.check_call(command, shell=True)
     except CalledProcessError:
-        print "Error running blastn. Check paths to blastn executable and input files."
+        print("Error running blastn. Check paths to blastn executable and input files.")
         raise
 
     return outputpath
@@ -104,11 +104,11 @@ def blast_protein_file(pf, dbpath, ncbi_bin, numthreads, outdir):
                 " -out " + outputpath + " -num_threads " + str(num_tblastn_threads) + \
                 ' -outfmt "6 qseqid sseqid length pident qlen slen evalue"'
 
-    print "Running command: " + command
+    print("Running command: " + command)
     try:
         subprocess.check_call(command, shell=True)
     except CalledProcessError:
-        print "Error running tblastn. Check paths to tblastn executable and input files."
+        print("Error running tblastn. Check paths to tblastn executable and input files.")
         raise
 
     return outputpath
@@ -129,7 +129,7 @@ def get_blast_hits(blastfile, hit_contigs_set, thresh=0.75):
 def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_bin,numthreads=1,clean=True,thresh=0.75):
     # create blast databases for the contigs
     if dbpath is None:
-        print "No blast db provided, creating one"
+        print("No blast db provided, creating one")
         dbpath = create_db(infile, ncbi_bin, outdir)
 
     # run BLAST searches for the genes in the gene lists
@@ -137,7 +137,7 @@ def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_b
     protfiles_blast_results = []
 
     if genefiles is not None:
-        print "Running blast search for gene (nt) sequences in blast db"
+        print("Running blast search for gene (nt) sequences in blast db")
         genefiles_list = genefiles.split(',')
         for gf in genefiles_list:
             gf_blastpath = blast_gene_file(gf, dbpath, ncbi_bin, numthreads, outdir)
@@ -145,7 +145,7 @@ def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_b
 
     # run BLAST searches for the proteins in the protein lists
     if proteinfiles is not None:
-        print "Running blast search for protein (aa) sequences in blast db"
+        print("Running blast search for protein (aa) sequences in blast db")
         protfiles_list = proteinfiles.split(',')
         for pf in protfiles_list:
             pf_blastpath = blast_protein_file(pf, dbpath, ncbi_bin, numthreads, outdir)
@@ -160,15 +160,15 @@ def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_b
 
     # write out the hit contigs to output file
     hit_contigs_list = list(hit_contigs_set)
-    print "{} contigs hit".format(len(hit_contigs_list))
+    print("{} contigs hit".format(len(hit_contigs_list)))
     outputfile = os.path.join(outdir, "hit_seqs.out")
-    print "Writing list of hit contigs in: " + outputfile
+    print("Writing list of hit contigs in: " + outputfile)
     with open(outputfile,'w+') as o:
         o.write('\n'.join(hit_contigs_list))
 
     # remove intermediate files
     if clean:
-        print "Removing intermediate files..."
+        print("Removing intermediate files...")
         for f in genefiles_blast_results: os.remove(f)
         for f in protfiles_blast_results: os.remove(f)
         if infile:  # we created the blast db
