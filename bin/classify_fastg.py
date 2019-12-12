@@ -42,7 +42,7 @@ def classify(infile, outfile, num_procs):
             seq_names.append(name)
             seqs.append(seq)
             i += 1
-            if i % 100000 == 0:
+            if i % 50000 == 0:
                 probs = c.classify(seqs)
                 for j,p in enumerate(probs):
                     o.write(seq_names[j] + '\t' + str(p) + '\n')

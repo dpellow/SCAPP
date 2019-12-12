@@ -6,9 +6,10 @@ import logging
 import multiprocessing as mp
 import pysam
 
+
 from recyclelib.utils import *
 
-logger = logging.getLogger("recycle_logger")
+import PARAMS
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
@@ -56,6 +57,44 @@ def parse_user_input():
             required=False, type=str
         )
 
+    # internal thresholds to be passed down to utils functions
+    parser.add_argument('-clft','--classification_thresh',
+        help='threshold for classifying potential plasmid [0.5]',
+        required=False, type=float
+    )
+    parser.add_argument('-gm','--gene_match_thresh',
+        help='threshold for % identity and fraction of length to match plasmid genes [0.75]',
+        required=False, type=float
+    )
+    parser.add_argument('-sls','--selfloop_score_thresh',
+        help='threshold for self-loop plasmid score [0.9]',
+        required=False, type=float
+    )
+    parser.add_argument('-slm','--selfloop_mate_thresh',
+        help='threshold for self-loop off loop mates [0.1]',
+        required=False, type=float
+    )
+    parser.add_argument('-cst','--chromosome_score_thresh',
+        help='threshold for high confidence chromosome node score [0.2]',
+        required=False, type=float
+    )
+    parser.add_argument('-clt','--chromosome_len_thresh',
+        help='threshold for high confidence chromosome node length [10000]',
+        required=False, type=float
+    )
+    parser.add_argument('-pst','--plasmid_score_thresh',
+        help='threshold for high confidence plasmid node score [0.9]',
+        required=False, type=float
+    )
+    parser.add_argument('-plt','--plasmid_len_thresh',
+        help='threshold for high confidence plasmid node length [10000]',
+        required=False, type=float
+    )
+    parser.add_argument('-cd','--good_cyc_dominated_thresh',
+        help='threshold for # of mate-pairs off the cycle in dominated node [0.5]',
+        required=False, type=float
+    )
+
     return parser.parse_args()
 
 def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
@@ -63,14 +102,15 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
                     max_CV, min_length, ISO=False):
     ''' Run run_recycler2'''
 
+    logger = logging.getLogger("recycle_logger")
+
     basename, _ = os.path.splitext(os.path.basename(fastg))
     fasta_ofile = os.path.join(outdir, basename+".cycs.fasta")
-    cycs_ofile = os.path.join(outdir, basename+".cycs.paths_w_cov.txt")
+    cycs_ofile = os.path.join(outdir, basename+".cycs.paths.txt")
     loop_ofile = os.path.join(outdir,basename+".self_loops.fasta")
     f_cycs_fasta = open(fasta_ofile, 'w') # output 1 - fasta of sequences
     f_cyc_paths = open(cycs_ofile, 'w') # output 2 - file containing path name (corr. to fasta),
     f_long_self_loops = open(loop_ofile,'w') # output 3 - file of self-loop fasta sequences
-                                        # path, coverage levels when path is added
     bamfile = pysam.AlignmentFile(bampath)
 
     # graph processing begins
@@ -78,7 +118,6 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
 
     logger.info("Removing %d isolate nodes" % len(list(nx.isolates(G))))
     G.remove_nodes_from(list(nx.isolates(G)))
-######### NOTE: if don't require circular path, should leave long isolates in
 
     cov_vals = [get_cov_from_spades_name(n) for n in G.nodes()]
     MED_COV = np.median(cov_vals)
@@ -106,7 +145,7 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
 
     # gets set of long simple loops, removes short
     # simple loops from graph
-    long_self_loops = get_long_self_loops(G, min_length, SEQS, bamfile, max_k)
+    long_self_loops = get_long_self_loops(G, min_length, SEQS, bamfile, use_scores, use_genes, max_k)
 
     for nd in long_self_loops:
         name = get_spades_type_name(path_count, nd,
@@ -123,8 +162,6 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
              str(get_num_from_spades_name(nd[0])) + "\n")
 
     comps = (G.subgraph(c).copy() for c in nx.strongly_connected_components(G))
-    #   #below function is deprecated in nx 2.1....
-        #comps = nx.strongly_connected_component_subgraphs(G)
 
     if use_scores:
         # Remove nodes that are most likely chromosomal
@@ -135,10 +172,9 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
             smaller_comps.update((comp.subgraph(c).copy() for c in nx.strongly_connected_components(comp)))
         comps = smaller_comps
 
-
     ###################################
     # iterate through SCCs looking for cycles
-###########################
+    ###################################
 
     #multiprocessing to find shortest paths
     pool = mp.Pool(num_procs)
@@ -166,27 +202,7 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
         VISITED_NODES.update(COMP.nodes())
         VISITED_NODES.update(rc_nodes)
 
-        large_comp_thresh = 50000#50000
-        if True:#len(COMP.nodes()) < large_comp_thresh:
-            path_set = process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
-
-        else: # break the component up into coverage bins
-            path_set = set()
-            logger.info("{} nodes in component. Breaking into bins by coverage".format(len(COMP.nodes())))
-            nodes_cov_list = sorted([get_cov_from_spades_name_and_graph(n,COMP) for n in COMP.nodes()])
-            for min_ind in range(0,len(nodes_cov_list),large_comp_thresh//2):
-                logger.info("Starting new bin")
-                max_ind = min_ind + large_comp_thresh
-                max_ind = min(max_ind,len(nodes_cov_list)-1)
-                logger.info("Min ind: {} Max ind: {}. Min coverage: {} Max coverage: {}".format(\
-                                        min_ind, max_ind, nodes_cov_list[min_ind], nodes_cov_list[max_ind]))
-                bin_nodes = [nd for nd in COMP.nodes() \
-                            if get_cov_from_spades_name_and_graph(nd,G) >= nodes_cov_list[min_ind] \
-                            and get_cov_from_spades_name_and_graph(nd,G) <= nodes_cov_list[max_ind]]
-
-                binned_comp = G.subgraph(bin_nodes).copy()
-                path_set |= process_component(binned_comp, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
-
+        path_set = process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores, use_genes, num_procs)
 
         for p in path_set:
             name = get_spades_type_name(path_count, p[0], SEQS, max_k, G, p[1])
@@ -200,7 +216,7 @@ def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
             path_count += 1
 
     pool.close()
-    pool.join() #TODO: Is this < ^ necessary? Is it better to maintain same pool through multiple runs??
+    pool.join()
     f_cycs_fasta.close()
     f_cyc_paths.close()
     f_long_self_loops.close()
@@ -210,14 +226,10 @@ def main():
 
     ####### entry point  ##############
 
-    ###################################
-    # read in fastg, load graph, create output handle
     args = parse_user_input()
     num_procs = args.num_processes
     fastg = args.graph
-    max_CV = args.max_CV
     max_k = args.max_k
-    min_length = args.length
     files_dir = os.path.dirname(fp.name)
     if args.scores:
         use_scores = True
@@ -228,6 +240,36 @@ def main():
 
     bampath = args.bam
     ISO = args.iso
+
+    # default threshold vaariables
+    PARAMS.load_params_json()
+    if args.max_CV:
+        PARAMS.MAX_CV = args.max_CV
+    if args.length:
+        PARAMS.MIN_LENGTH = args.length
+    if args.classification_thresh:
+        PARAMS.CLASSIFICATION_THRESH = args.classification_thresh
+    if args.gene_match_thresh:
+        PARAMS.GENE_MATCH_THRESH = args.gene_match_thresh
+    if args.selfloop_score_thresh:
+        PARAMS.SELF_LOOP_SCORE_THRESH = args.selfloop_score_thresh
+    if args.selfloop_mate_thresh:
+        PARAMS.SELF_LOOP_MATE_THRESH = args.selfloop_mate_thresh
+    if args.chromosome_score_thresh:
+        PARAMS.CHROMOSOME_SCORE_THRESH = args.chromosome_score_thresh
+    if args.chromosome_len_thresh:
+        PARAMS.CHROMOSOME_LEN_THRESH = args.CHROMOSOME_LEN_THRESH
+    if args.plasmid_score_thresh:
+        PARAMS.PLASMID_SCORE_THRESH = args.plasmid_score_thresh
+    if args.plasmid_len_thresh:
+        PARAMS.PLASMID_LEN_THRESH
+    if args.good_cyc_dominated_thresh:
+        PARAMS.GOOD_CYC_DOMINATED_THRESH = args.good_cyc_dominated_thresh
+
+    # Set up logging and write config and options to the log file
+    logfile = os.path.join(args.output_dir,"recycler2.log")
+    logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
+    logger = logging.getLogger("recycle_logger")
 
     run_recycler2(fastg, args.output_dir, bampath, num_procs, max_k, \
                     args.gene_hits, use_genes, args.scores, use_scores, \

@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setup(
     name='recycler2',
-    version="0.1",
+    version="1.0",
     author="David Pellow",
     author_email="dpellow@mail.tau.ac.il",
     long_description=long_description,
@@ -13,7 +13,7 @@ setup(
     description='Recycler2: an updated algorithm for detecting plasmids from de novo assembly graphs',
     url='https://github.com/dpellow/Recycler2',
     classifiers=[
-        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.7",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
@@ -22,9 +22,9 @@ setup(
                 'bin/create_hits_fasta.py'],
     packages = ['recyclelib'],
     install_requires=[
-        'networkx',
-        'pysam',
-        'nose',
-        'numpy'],
+        'networkx==2.4',
+        'pysam==0.15.3',
+        'nose==1.3',
+        'numpy==1.17'],
     include_package_data=True,
 )

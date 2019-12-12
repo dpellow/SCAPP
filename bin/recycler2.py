@@ -6,9 +6,11 @@ import glob
 import json
 import logging
 import os, subprocess, sys
+import shutil
 import time
 
 import recyclelib.utils as utils
+import PARAMS
 
 import make_fasta_from_fastg # for creating the fasta for read mappings
 import find_plasmid_gene_matches # for running BLAST to find matches to the plasmid-specific genes
@@ -33,7 +35,7 @@ def parse_user_input():
         help='Integer reflecting maximum k value used by the assembler',
         required=False, type=int, default=55
     )
-    parser.add_argument('-l', '--length',
+    parser.add_argument('-l', '--min_length',
      help='Minimum length required for reporting [default: 1000]',
      required=False, type=int, default=1000
     )
@@ -41,20 +43,19 @@ def parse_user_input():
      help='Coefficient of variation used for pre-selection [default: 0.5, higher--> less restrictive]',
       required=False, default=1./2, type=float
     )
-
     parser.add_argument('-p','--num_processes',
         help='Number of processes to use',
-        required=False, type=int, default=1
+        required=False, type=int, default=16
     )
 
     parser.add_argument('-sc','--use_scores',
         help='Boolean flag of whether to use sequence classification scores in plasmid assembly',
-        required=False, type=bool, default=True
+        required=False, type=str, default='True'
     )
 
-    parser.add_argument('-gh','--use_genes',
+    parser.add_argument('-gh','--use_gene_hits',
         help='Boolean flag of whether to use plasmid-specific gene hits in plasmid assembly',
-        required=False, type=bool, default=True
+        required=False, type=str, default='True'
     )
     parser.add_argument('-b','--bam',
         help='BAM file resulting from aligning reads to contigs file, filtering for best matches',
@@ -72,6 +73,44 @@ def parse_user_input():
     group.add_argument('-pc', '--plasclass', type=str, help="PlasClass score file with scores of the assembly graph nodes" )
     group.add_argument('-pf','--plasflow',type=str, help="PlasFlow score file with scores of the assembly graph nodes")
 
+    # internal thresholds to be passed down to utils functions
+    parser.add_argument('-clft','--classification_thresh',
+        help='threshold for classifying potential plasmid [0.5]',
+        required=False, type=float
+    )
+    parser.add_argument('-gm','--gene_match_thresh',
+        help='threshold for % identity and fraction of length to match plasmid genes [0.75]',
+        required=False, type=float
+    )
+    parser.add_argument('-sls','--selfloop_score_thresh',
+        help='threshold for self-loop plasmid score [0.9]',
+        required=False, type=float
+    )
+    parser.add_argument('-slm','--selfloop_mate_thresh',
+        help='threshold for self-loop off loop mates [0.1]',
+        required=False, type=float
+    )
+    parser.add_argument('-cst','--chromosome_score_thresh',
+        help='threshold for high confidence chromosome node score [0.2]',
+        required=False, type=float
+    )
+    parser.add_argument('-clt','--chromosome_len_thresh',
+        help='threshold for high confidence chromosome node length [10000]',
+        required=False, type=float
+    )
+    parser.add_argument('-pst','--plasmid_score_thresh',
+        help='threshold for high confidence plasmid node score [0.9]',
+        required=False, type=float
+    )
+    parser.add_argument('-plt','--plasmid_len_thresh',
+        help='threshold for high confidence plasmid node length [10000]',
+        required=False, type=float
+    )
+    parser.add_argument('-cd','--good_cyc_dominated_thresh',
+        help='threshold for # of mate-pairs off the cycle in dominated node [0.5]',
+        required=False, type=float
+    )
+
     return parser.parse_args()
 
 def main():
@@ -81,9 +120,6 @@ def main():
     fastg = args.graph
     outdir = args.output_dir
     max_k = args.max_k
-
-    max_CV = args.max_CV
-    min_length = args.length
 
     num_procs = args.num_processes
 
@@ -96,13 +132,45 @@ def main():
     plasflow_file = args.plasflow # these are mutually exclusive
 
     # flags
-    use_scores = args.use_scores
-    use_genes = args.use_genes
+    use_scores = True if args.use_scores in ['True','true'] else False
+    use_genes = True if args.use_gene_hits in ['True','true'] else False
+
+
+    # default threshold variables
+    PARAMS.load_params_json()
+    if args.max_CV:
+        PARAMS.MAX_CV = args.max_CV
+    if args.min_length:
+        PARAMS.MIN_LENGTH = args.min_length
+    if args.classification_thresh:
+        PARAMS.CLASSIFICATION_THRESH = args.classification_thresh
+    if args.gene_match_thresh:
+        PARAMS.GENE_MATCH_THRESH = args.gene_match_thresh
+    if args.selfloop_score_thresh:
+        PARAMS.SELF_LOOP_SCORE_THRESH = args.selfloop_score_thresh
+    if args.selfloop_mate_thresh:
+        PARAMS.SELF_LOOP_MATE_THRESH = args.selfloop_mate_thresh
+    if args.chromosome_score_thresh:
+        PARAMS.CHROMOSOME_SCORE_THRESH = args.chromosome_score_thresh
+    if args.chromosome_len_thresh:
+        PARAMS.CHROMOSOME_LEN_THRESH = args.CHROMOSOME_LEN_THRESH
+    if args.plasmid_score_thresh:
+        PARAMS.PLASMID_SCORE_THRESH = args.plasmid_score_thresh
+    if args.plasmid_len_thresh:
+        PARAMS.PLASMID_LEN_THRESH
+    if args.good_cyc_dominated_thresh:
+        PARAMS.GOOD_CYC_DOMINATED_THRESH = args.good_cyc_dominated_thresh
 
     parent_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     data_path = os.path.join(parent_path,'data')
     bin_path  = os.path.join(parent_path, 'bin')
 
+    int_dir = os.path.join(outdir, 'intermediate_files')
+    if not os.path.exists(int_dir):
+        os.makedirs(int_dir)
+    logs_dir = os.path.join(outdir, 'logs')
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
 
     # Get config variables
     try:
@@ -116,38 +184,31 @@ def main():
         print("Error loading config variables. Please check config.json file")
         raise
 
-    int_dir = os.path.join(outdir, 'intermediate_files')
-    if not os.path.exists(int_dir):
-        os.makedirs(int_dir)
-    logs_dir = os.path.join(outdir, 'logs')
-    if not os.path.exists(logs_dir):
-        os.makedirs(logs_dir)
-
     # Set up logging and write config and options to the log file
     logfile = os.path.join(logs_dir,"recycler2.log")
     logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
     logger = logging.getLogger("recycle_logger")
 
     logger.info("Beginning Recycler2 workflow")
-#TODO: ADD print of plasclass path
     logger.info("Got parameters:\n\tInput graph: {}\n\tOutput directory: {} \n\tMaximum k value: {}\
     \n\t# processes: {}\n\tMaximum CV: {}\n\tMinimum Length: {}\n\tBamfile: {}\n\tReads file 1: {}\
     \n\tReads file 2: {}\n\tUse scores: {}\n\tUse genes: {}\n\tPath to BWA executables: {}\
-    \n\tPath to NCBI executables: {}".format(
-        fastg, outdir, max_k, num_procs, max_CV, min_length, bamfile, reads1, reads2,
-        use_scores, use_genes, bwa_path, ncbi_path))
+    \n\tPath to NCBI executables: {}\n\tPath to samtools executables: {}\
+    \n\tPlasClass scores file: {}".format(
+        fastg, outdir, max_k, num_procs, PARAMS.MAX_CV, PARAMS.MIN_LENGTH, bamfile, reads1, reads2,
+        use_scores, use_genes, bwa_path, ncbi_path, samtools_path, plasclass_file))
 
     # TODO: Support GFA format: script to convert gfa to fastg
 
     # Step 1: Map reads and create BAM file
     if bamfile is None:
         # first create fasta of contigs in only one direction
+        time_start = time.time()
         logger.info('Creating fasta from fastg')
         nodes_fasta = os.path.join(int_dir, 'assembly_graph.nodes.fasta')
         make_fasta_from_fastg.parse_lines(fastg, nodes_fasta)
 
         print("Creating BAM file of read mappings with BWA")
-        time_start = time.time()
         logger.info("Creating BAM file")
 
         bwa_file = os.path.join(bwa_path,'bwa')
@@ -155,7 +216,7 @@ def main():
 
         # BWA index
         bwa_outfile_name = os.path.join(logs_dir,'bwa_std.log')
-        bwa_outfile = open(bwa_outfile_name,'w') # Don't clutter with print files
+        bwa_outfile = open(bwa_outfile_name,'w') # Don't clutter with print statements
         cmd = bwa_file + " index " + nodes_fasta
         logger.info("Executing command: '{}'".format(cmd))
         subprocess.check_call(cmd, stderr=subprocess.STDOUT, stdout=bwa_outfile, shell=True)
@@ -172,7 +233,6 @@ def main():
 
         # Filter reads with samtools
         primary_bam = os.path.join(int_dir, "reads_pe_primary.bam")
-        #TODO: WHAT SHOULD THE FLAG BE SET TO?
         cmd = samtools_file + " view -bF 0x0900 -@ " + str(num_procs-1) + " " + reads_bam + ' > ' + primary_bam
 #        cmd = samtools_file + " view -bF 0x0800 -@ " + str(num_procs-1) + " " + reads_bam + ' > ' + primary_bam
         logger.info("Executing command: '{}'".format(cmd))
@@ -219,7 +279,6 @@ def main():
         stdfile = open(plasclass_outfile,'w')
         sys.stdout = stdfile
         sys.stderr = sys.stdout
-#TODO: Add try-except blocks around main calls to scripts (AND IN THE SCRIPTS)
         classify_fastg.classify(fastg, plasclass_file, num_procs)
         sys.stdout = sys_stdout
         sys.stderr = sys_stderr
@@ -232,11 +291,15 @@ def main():
     if use_scores:
         # Parse and transform the scores
         logger.info("Transforming scores")
+        time_start = time.time()
         scores_file = os.path.join(int_dir, 'assembly_graph.nodes.scores')
         if plasflow_file:
             parse_plasmid_scores.transformPlasFlow(plasflow_file, scores_file)
         else:
             parse_plasmid_scores.transformPlasClass(plasclass_file, scores_file)
+        time_end = time.time()
+        logger.info("{} seconds to transform scores".format(
+            time_end-time_start))
 
     # Step 3: BLAST for plasmid-specific genes and parse BLAST output
     gene_hits_path = None
@@ -246,31 +309,28 @@ def main():
         logger.info('Finding plasmid-specific genes with BLAST')
         # don't want to clutter with more print statements
         # a bit more complicated for BLAST which prints from c
-        new_stdout = os.dup(sys.stdout.fileno())
-        new_stderr = os.dup(sys.stderr.fileno())
+        old_stdout = os.dup(sys.stdout.fileno())
+        old_stderr = os.dup(sys.stderr.fileno())
         blast_outfile = os.path.join(logs_dir,'blast_std.log')
         stdfile = open(blast_outfile,'w')
         os.dup2(stdfile.fileno(),sys.stdout.fileno())
         os.dup2(stdfile.fileno(),sys.stderr.fileno())
         genefiles_path = os.path.join(data_path,'nt')
         protfiles_path = os.path.join(data_path,'aa')
-        genefiles_list = [os.path.join(genefiles_path,fname) for fname in os.listdir(genefiles_path)]
-        protfiles_list = [os.path.join(protfiles_path,fname) for fname in os.listdir(protfiles_path)]
-        genefiles = ','.join(genefiles_list)
-        protfiles = ','.join(protfiles_list)
         try:
-            find_plasmid_gene_matches.find_plasmid_gene_matches(fastg, int_dir, genefiles, protfiles, None, \
-                                    ncbi_path, num_procs)
+            gene_hits_path = find_plasmid_gene_matches.find_plasmid_gene_matches( \
+                                fastg, int_dir, genefiles_path, protfiles_path, None, \
+                                ncbi_path, num_procs, PARAMS.GENE_MATCH_THRESH)
         except:
-            os.dup2(new_stdout, sys.stdout.fileno())
-            os.dup2(new_stderr, sys.stderr.fileno())
+            os.dup2(old_stdout, sys.stdout.fileno())
+            os.dup2(old_stderr, sys.stderr.fileno())
             stdfile.close()
             print("Error finding plasmid genes - check BLAST output file (blast_std.log)")
             raise
-        os.dup2(new_stdout, sys.stdout.fileno())
-        os.dup2(new_stderr, sys.stderr.fileno())
+
+        os.dup2(old_stdout, sys.stdout.fileno())
+        os.dup2(old_stderr, sys.stderr.fileno())
         stdfile.close()
-        gene_hits_path = os.path.join(int_dir,'hit_seqs.out')
         time_end = time.time()
         logger.info("{} seconds to find plasmid-specific gene hits".format(
             time_end-time_start))
@@ -279,29 +339,27 @@ def main():
     print("Starting Recycler2 plasmid finding")
     logger.info("Starting plasmid finding")
     time_start = time.time()
-    recycle.run_recycler2(fastg, outdir, bamfile, num_procs, max_k, \
+    recycle.run_recycler2(fastg, int_dir, bamfile, num_procs, max_k, \
                     gene_hits_path, use_genes, scores_file, use_scores, \
-                    max_CV, min_length)
+                    PARAMS.MAX_CV, PARAMS.MIN_LENGTH)
     time_end = time.time()
     logger.info("{} seconds to run Recycler2 plasmid finding".format(
         time_end-time_start))
 
 
     basename, _ = os.path.splitext(os.path.basename(fastg))
-    fasta_ofile = os.path.join(outdir,basename+'.cycs.fasta')
-    self_loops_ofile = os.path.join(outdir,basename+'.self_loops.fasta')
+    fasta_ofile = os.path.join(int_dir,basename+'.cycs.fasta')
+    self_loops_ofile = os.path.join(int_dir,basename+'.self_loops.fasta')
 
     # Step 5: Post-process filtering: BLAST output plasmids for plasmid-specific genes
     if use_genes:
         print("Filtering plasmids by plasmid-specific genes")
         logger.info("Filtering plasmids by plasmid-specific genes")
         time_start = time.time()
-
-
         # don't want to clutter with more print statements
         # a bit more complicated for BLAST which prints from c
-        new_stdout = os.dup(sys.stdout.fileno())
-        new_stderr = os.dup(sys.stderr.fileno())
+        old_stdout = os.dup(sys.stdout.fileno())
+        old_stderr = os.dup(sys.stderr.fileno())
         blast_outfile = os.path.join(logs_dir,'blast_std.log')
         stdfile = open(blast_outfile,'a')
         os.dup2(stdfile.fileno(),sys.stdout.fileno())
@@ -310,22 +368,22 @@ def main():
         hit_plasmids_dir = os.path.join(int_dir,"hit_cycs")
         if not os.path.exists(hit_plasmids_dir):
             os.mkdir(hit_plasmids_dir)
-        hit_plasmids_fname = os.path.join(hit_plasmids_dir,"hit_seqs.out")
         try:
-            find_plasmid_gene_matches.find_plasmid_gene_matches(fasta_ofile, hit_plasmids_dir, genefiles, protfiles, \
-                                    None, ncbi_path, num_procs)
+            hit_plasmids_fname = find_plasmid_gene_matches.find_plasmid_gene_matches( \
+                                    fasta_ofile, hit_plasmids_dir, genefiles_path, \
+                                    protfiles_path, None, ncbi_path, num_procs, PARAMS.GENE_MATCH_THRESH)
         except:
-            os.dup2(new_stdout, sys.stdout.fileno())
-            os.dup2(new_stderr, sys.stderr.fileno())
+            os.dup2(old_stdout, sys.stdout.fileno())
+            os.dup2(old_stderr, sys.stderr.fileno())
             stdfile.close()
             print("Error filtering by plasmid genes. Check BLAST output file (blast_std.log)")
             raise
 
-        os.dup2(new_stdout, sys.stdout.fileno())
-        os.dup2(new_stderr, sys.stderr.fileno())
+        os.dup2(old_stdout, sys.stdout.fileno())
+        os.dup2(old_stderr, sys.stderr.fileno())
         stdfile.close()
 
-        gene_filtered_ofile = os.path.join(outdir, basename+".gene_filtered_cycs.fasta")
+        gene_filtered_ofile = os.path.join(int_dir, basename+".gene_filtered_cycs.fasta")
         create_hits_fasta.create_hits(fasta_ofile, hit_plasmids_fname, gene_filtered_ofile)
         time_end = time.time()
         logger.info("{} seconds to filter plasmids using plasmid-specific gene hits".format(
@@ -349,12 +407,11 @@ def main():
         parse_plasmid_scores.transformPlasClass(plasclass_filtered_file, plasmid_scores_file)
 
         classified_plasmids_fname = os.path.join(hit_plasmids_dir,"classified_cycs.out")
-        classification_thresh = 0.5
         with open(plasmid_scores_file) as f, open(classified_plasmids_fname,'w') as o:
             for line in f:
                 splt = line.strip().split()
-                if float(splt[1]) > classification_thresh: o.write(splt[0] + '\n')
-        classification_filtered_ofile = os.path.join(outdir, basename+".classified_cycs.fasta")
+                if float(splt[1]) > PARAMS.CLASSIFICATION_THRESH: o.write(splt[0] + '\n')
+        classification_filtered_ofile = os.path.join(int_dir, basename+".classified_cycs.fasta")
         create_hits_fasta.create_hits(fasta_ofile, classified_plasmids_fname, classification_filtered_ofile)
         sys.stdout = sys_stdout
         sys.stderr = sys_stderr
@@ -408,6 +465,7 @@ def main():
     # Step 8: Clean up any remaining intermediate files
     if use_scores:
         os.remove(scores_file)
+        shutil.rmtree(hit_plasmids_dir)
 
 if __name__ == '__main__':
     main()

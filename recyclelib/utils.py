@@ -10,6 +10,8 @@ from multiprocessing import Manager
 
 import time
 
+import PARAMS
+
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
 logger = logging.getLogger("recycle_logger")
 
@@ -257,7 +259,7 @@ def get_total_path_mass(path,G):
         get_cov_from_spades_name_and_graph(p,G) for p in path])
 
 
-def get_long_self_loops(G, min_length, seqs, bamfile, max_k_val=55, score_thresh=0.9):
+def get_long_self_loops(G, min_length, seqs, bamfile, use_scores=True, use_genes=True, max_k_val=55, score_thresh=0.9, mate_thresh = 0.1):
     """ returns set of self loop nodes paths that are longer
         than min length and satisfy mate pair requirements;
         removes those and short self loops from G
@@ -265,30 +267,32 @@ def get_long_self_loops(G, min_length, seqs, bamfile, max_k_val=55, score_thresh
     potential_plasmids = set([])
     to_remove = []
 
-    for nd in G.nodes_with_selfloops():
+    for nd in list(nx.nodes_with_selfloops(G)):
         if (rc_node(nd),) in potential_plasmids: continue
         nd_path = (nd,)
         path_len = len(get_seq_from_path(nd_path, seqs, max_k_val))
 
         # check whether it is isolated or connected to other nodes:
+        isolated_loop = False
         if G.in_degree(nd) == 1 and G.out_degree(nd)== 1:
             isolated_loop = True
-        else: isolated_loop = False
         if isolated_loop:
             if path_len < min_length:
                 to_remove.append(nd)
                 continue
 
             # take nodes that have plasmid genes or very high plasmid scores
-            if G.nodes[nd]['score'] > score_thresh or G.nodes[nd]['gene']==True:
-                potential_plasmids.add(nd_path)
-                logger.info("Added path: %s - high scoring long self-loop" % nd)
-                to_remove.append(nd)
-                continue
+            if use_scores and use_genes:
+                logger.info("SLS: %f" % PARAMS.SELF_LOOP_SCORE_THRESH)
+                if G.nodes[nd]['score'] > PARAMS.SELF_LOOP_SCORE_THRESH or G.nodes[nd]['gene']==True:
+                    potential_plasmids.add(nd_path)
+                    logger.info("Added path: %s - high scoring long self-loop" % nd)
+                    to_remove.append(nd)
+                    continue
 
             off_node_mate_count, on_node_mate_count = count_selfloop_mates(nd,bamfile,G)
-            if float(off_node_mate_count) > 0.1*float(on_node_mate_count):
-                logger.info('Self loop %s has 10 percent off-node mate-pairs. Removing' % nd)
+            if float(off_node_mate_count) > PARAMS.SELF_LOOP_MATE_THRESH*float(on_node_mate_count):
+                logger.info('Self loop %s has %2f percent off-node mate-pairs. Removing' % (nd,PARAMS.SELF_LOOP_MATE_THRESH))
                 to_remove.append(nd)
             else:
                 potential_plasmids.add(nd_path)
@@ -298,9 +302,9 @@ def get_long_self_loops(G, min_length, seqs, bamfile, max_k_val=55, score_thresh
             if path_len < min_length: continue
 
             off_node_mate_count, on_node_mate_count = count_selfloop_mates(nd,bamfile,G)
-            if float(off_node_mate_count) > 0.1*float(on_node_mate_count): # TODO: could be different than for isolated loop
-                                                                           # Maybe - func of node length (and read length, insert size???)
-                logger.info('Self loop %s has 10 percent off-node mate-pairs.' % nd)
+            if float(off_node_mate_count) > PARAMS.SELF_LOOP_MATE_THRESH*float(on_node_mate_count):  # TODO: could be different than for isolated loop
+                                                                                    # Maybe - func of node length (and read length, insert size???)
+                logger.info('Self loop %s has %2f percent off-node mate-pairs.' % (nd,PARAMS.SELF_LOOP_MATE_THRESH))
             else:
                 potential_plasmids.add(nd_path)
                 logger.info("Added path: %s  - long self loop" % nd)
@@ -311,24 +315,24 @@ def get_long_self_loops(G, min_length, seqs, bamfile, max_k_val=55, score_thresh
     logger.info("Removing %d self-loop nodes" % len(to_remove))
     return potential_plasmids
 
-def remove_hi_confidence_chromosome(G, len_thresh=10000, score_thresh=0.2):
+def remove_hi_confidence_chromosome(G):
     """ Remove the long nodes that are predicted to likely be chromosomal
     """
     to_remove = []
     for nd in G.nodes():
-        if get_length_from_spades_name(nd) > len_thresh and \
-            G.nodes[nd]['score']<score_thresh:
+        if get_length_from_spades_name(nd) > PARAMS.CHROMOSOME_LEN_THRESH and \
+            G.nodes[nd]['score'] < PARAMS.CHROMOSOME_SCORE_THRESH:
             to_remove.append(nd)
             to_remove.append(rc_node(nd))
     G.remove_nodes_from(to_remove)
     logger.info("Removed %d long, likely chromosomal nodes" % len(set(to_remove)))
 
-def get_hi_conf_plasmids(G, len_thresh=10000, score_thresh=0.9):
+def get_hi_conf_plasmids(G):
     """ Return a list of nodes that are likely plasmids
     """
 
-    hi_conf_plasmids = [nd for nd in G.nodes() if (get_length_from_spades_name(nd) > len_thresh and \
-                        G.nodes[nd]['score'] > score_thresh)]
+    hi_conf_plasmids = [nd for nd in G.nodes() if (get_length_from_spades_name(nd) > PARAMS.PLASMID_LEN_THRESH and \
+                        G.nodes[nd]['score'] > PARAMS.PLASMID_SCORE_THRESH)]
 
     logger.info("Found %d long, likely plasmid nodes" % len(hi_conf_plasmids))
     return hi_conf_plasmids
@@ -390,7 +394,7 @@ def enum_high_mass_shortest_paths(G, pool, use_scores=False, use_genes=False, se
     logger.info("Getting edge weights")
 
     # use add_edge to assign edge weights to be 1/mass of starting node
-    #TODO: only calculate these if they haven't been/need to be updated
+    # TODO: only calculate these if they haven't been/need to be updated
     for e in G.edges():
         if use_genes and G.nodes[e[1]]['gene'] == True:
             G.add_edge(e[0], e[1], cost = 0.0)
@@ -398,11 +402,6 @@ def enum_high_mass_shortest_paths(G, pool, use_scores=False, use_genes=False, se
             G.add_edge(e[0], e[1], cost = (1.-(G.nodes[e[1]]['score']))/get_spades_base_mass(G, e[1]))
         else:
             G.add_edge(e[0], e[1], cost = (1./get_spades_base_mass(G, e[1])))
-
-            ########### NOTE: The shortest paths method counts shortest paths on the edges to the incoming neighbours of
-            ################# each node. The weight of the source node is the same for all these paths and we need to count
-            ################# the weight of the final node in each path. So - it makes more sense to put the weight of the
-            ################# end node on each edge.
 
     logger.info("Getting shortest paths")
     paths_list = []
@@ -428,11 +427,10 @@ def enum_high_mass_shortest_paths(G, pool, use_scores=False, use_genes=False, se
     return paths
 
 
-
 def get_high_mass_shortest_path(node,G,use_scores,use_genes):
     """ Return the shortest circular path back to node
     """
-    #TODO: potentially add check for unique paths so that don't check same cycle
+    # TODO: potentially add check for unique paths so that don't check same cycle
     # twice if there are two potential plasmid nodes in it
 
     for e in G.edges():
@@ -478,26 +476,6 @@ def get_spades_type_name(count, path, seqs, max_k_val, G, cov=None):
      "cov", '%.5f' % (cov)]
     return "_".join(info)
 
-
-#def count_node_mates(node, path, bamfile):
-#    """ Counts the number of off-node and on-node mate pairs of
-#    """
-#    off_path_count = 0
-#    on_path_count = 0
-#    if node[-1] == "'": node = node[:-1]
-#    try:
-#        for hit in bamfile.fetch(node):
-#            nref = bamfile.getrname(hit.next_reference_id)
-#            if nref != node:
-#                if nref in path or rc_node(nref) in path:
-#                    on_path_count += 1
-#                else:
-#                    off_path_count += 1
-#
-#    except ValueError:
-#        pass
-#
-#    return on_path_count, off_path_count
 
 def count_selfloop_mates(node,bamfile,G):
     """ Counts the number of off-node and on-node mate pairs of
@@ -550,9 +528,8 @@ def get_contigs_of_mates(node, bamfile, G):
 
     return mate_tigs
 
-# TODO: validate choice for ratio threshold
 ####### Updated - exclude path with node that mostly has mates outside of path
-def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
+def is_good_cyc(path, G, bamfile):
     """ check all non-repeat nodes only have mates
         mapping to contigs in the cycle
     """
@@ -578,14 +555,12 @@ def is_good_cyc(path, G, bamfile,dominated_thresh=0.5, off_path_thresh=0.75 ):
         if num_mates_in_path < num_mates_not_in_path:
        ########### if len(mate_tigs)>1 and num_mates_in_path < num_mates_not_in_path:
             non_path_dominated_nodes += 1
-    if float(non_path_dominated_nodes)/float(len(sing_nodes)) > dominated_thresh:
+    if float(non_path_dominated_nodes)/float(len(sing_nodes)) > PARAMS.GOOD_CYC_DOMINATED_THRESH:
         logger.info("Too many nodes with majority of mates not on path")
         return False
     else: return True
 
 #########################
-#TODO: calculate SEQS only for the component
-#TODO: get rid of G and use COMP
 def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile, pool, use_scores=False, use_genes=False, num_procs=1):
     """ run recycler for a single component of the graph
         use multiprocessing to process components in parallel
@@ -612,15 +587,11 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
             if path is None: continue
             # check coverage variation
             path_CV = get_wgtd_path_coverage_CV(path,G,SEQS,max_k_val=max_k)
-#################################                path_CV = get_wgtd_path_coverage_CV(path,COMP,SEQS,max_k_val=max_k)
             logger.info("Plasmid gene path: %s, CV: %4f" % (str(path),path_CV))
             if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
                 logger.info("Added plasmid gene path %s" % (str(path)))
 
-                    # prevent checking nodes that have been removed
-                    # TODO: do this more efficiently
-                    # TODO: the right way to do this is remove just the top node and its RC
-                    #       and recalculate the masses and sort in each iteration
+                # prevent checking nodes that have been removed
                 i = 0
                 while i < len(potential_plasmid_mass_tuples):
                     if potential_plasmid_mass_tuples[i][1] in path or \
@@ -629,11 +600,9 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     else: i += 1
 
                 seen_unoriented_paths.add(get_unoriented_sorted_str(path))
-                #TODO: SHOULD IT BE G OR COMP??
                 before_cov, _ = get_path_mean_std(path, G, SEQS, max_k)
-#                before_cov, _ = get_path_mean_std(path, COMP, SEQS, max_k)
-                covs = update_path_coverage_vals(path, G, SEQS, max_k) #############################
-                update_path_with_covs(path, COMP, covs)###############################
+                covs = update_path_coverage_vals(path, G, SEQS, max_k)
+                update_path_with_covs(path, COMP, covs)
                 path_count += 1
                 paths_set.add((path,before_cov))
 
@@ -641,7 +610,6 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                 logger.info("Did not add plasmid gene path: %s" % (str(path)))
 
         # then look for circular paths that start from hi confidence plasmid nodes
-        # TODO: implement own scoring function
     if use_scores:
         potential_plasmid_nodes = get_hi_conf_plasmids(COMP)
         potential_plasmid_mass_tuples = [(get_spades_base_mass(COMP,nd),nd) for nd in potential_plasmid_nodes]
@@ -658,10 +626,7 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
             if path_CV <= max_CV and is_good_cyc(path,G,bamfile):
                 logger.info("Added hi conf path %s" % (str(path)))
 
-                    # prevent checking nodes that have been removed
-                    # TODO: do this more efficiently
-                    # TODO: the right way to do this is remove just the top node and its RC
-                    #       and recalculate the masses and sort in each iteration
+                # prevent checking nodes that have been removed
                 i = 0
                 while i < len(potential_plasmid_mass_tuples):
                     if potential_plasmid_mass_tuples[i][1] in path or \
@@ -729,8 +694,8 @@ def process_component(COMP, G, max_k, min_length, max_CV, SEQS, thresh, bamfile,
                     seen_unoriented_paths.add(get_unoriented_sorted_str(curr_path))
                     #before_cov, _ = get_path_mean_std(curr_path, COMP, SEQS, max_k)
                     before_cov, _ = get_path_mean_std(curr_path, G, SEQS, max_k)
-                    covs = update_path_coverage_vals(curr_path, G, SEQS, max_k)#####################
-                    update_path_with_covs(curr_path, COMP, covs) ###################
+                    covs = update_path_coverage_vals(curr_path, G, SEQS, max_k)
+                    update_path_with_covs(curr_path, COMP, covs)
                     path_count += 1
                     paths_set.add((curr_path,before_cov))
                     break

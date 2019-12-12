@@ -24,12 +24,12 @@ def parse_user_input():
      help='path to directory to write output and temporary files',
      required=True, type=str
      )
-    parser.add_argument('-g','--genefiles',
-     help='csv list of paths to plasmid-specific gene fasta files',
+    parser.add_argument('-g','--genes_dir',
+     help='directory with plasmid-specific gene fasta files',
      required=False, type=str
      )
-    parser.add_argument('-p','--proteinfiles',
-     help='csv list of paths to plasmid-specific protein fasta files',
+    parser.add_argument('-p','--proteins_dir',
+     help='directory with plasmid-specific protein fasta files',
      required=False, type=str
      )
     parser.add_argument('--ncbi_bin',
@@ -126,7 +126,19 @@ def get_blast_hits(blastfile, hit_contigs_set, thresh=0.75):
             if percentid > thresh*100 and float(matchlen)/float(genelen) > thresh:
                 hit_contigs_set.add(contig)
 
-def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_bin,numthreads=1,clean=True,thresh=0.75):
+def find_plasmid_gene_matches(infile,outdir,genes_dir,proteins_dir,dbpath,ncbi_bin,numthreads=1,thresh=0.75,clean=True):
+    '''
+    Find the gene matches: Create blastdb for query if not provided, BLAST against
+    each of the gene and protein reference files, and parse the outputs to get the hit contigs
+    Args: infile - the input file to query for gene hits in
+          outdir - the directory to write the output
+          genes_dir, proteins_dir - the directories of the reference sequence files
+          dbpath - blast database of query (None if there isn't one)
+          ncbi_bin - path to blast executables
+
+    Outputs: writes file <outdir>/hit_seqs.out
+    Returns: path of outfile
+    '''
     # create blast databases for the contigs
     if dbpath is None:
         print("No blast db provided, creating one")
@@ -136,18 +148,18 @@ def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_b
     genefiles_blast_results = []
     protfiles_blast_results = []
 
-    if genefiles is not None:
+    if genes_dir is not None:
         print("Running blast search for gene (nt) sequences in blast db")
-        genefiles_list = genefiles.split(',')
-        for gf in genefiles_list:
+        for fname in os.listdir(genes_dir):
+            gf = os.path.join(genes_dir,fname)
             gf_blastpath = blast_gene_file(gf, dbpath, ncbi_bin, numthreads, outdir)
             genefiles_blast_results.append(gf_blastpath)
 
     # run BLAST searches for the proteins in the protein lists
-    if proteinfiles is not None:
+    if proteins_dir is not None:
         print("Running blast search for protein (aa) sequences in blast db")
-        protfiles_list = proteinfiles.split(',')
-        for pf in protfiles_list:
+        for fname in os.listdir(proteins_dir):
+            pf = os.path.join(proteins_dir,fname)
             pf_blastpath = blast_protein_file(pf, dbpath, ncbi_bin, numthreads, outdir)
             protfiles_blast_results.append(pf_blastpath)
 
@@ -173,6 +185,7 @@ def find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_b
         for f in protfiles_blast_results: os.remove(f)
         if infile:  # we created the blast db
             for f in glob.glob(dbpath+'*'): os.remove(f)
+    return outputfile
 
 
 
@@ -180,15 +193,15 @@ def main():
     args = parse_user_input()
     infile = args.fasta
     outdir = args.output
-    genefiles = args.genefiles
-    proteinfiles = args.proteinfiles
+    genes_dir = args.genes_dir
+    proteins_dir = args.proteins_dir
     dbpath = args.blastdb
     ncbi_bin = args.ncbi_bin
     numthreads = args.nthreads
     thresh = args.thresh
     clean = args.clean
 
-    find_plasmid_gene_matches(infile,outdir,genefiles,proteinfiles,dbpath,ncbi_bin,numthreads,clean,thresh)
+    find_plasmid_gene_matches(infile,outdir,genes_dir,proteins_dir,dbpath,ncbi_bin,numthreads,thresh,clean)
 
 
 if __name__=='__main__':

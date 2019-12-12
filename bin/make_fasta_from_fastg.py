@@ -35,13 +35,12 @@ def parse_lines(fastg, ofile_name):
 if __name__=='__main__':
     args = parse_user_input()
     fastg = args.graph
-    files_dir = os.path.dirname(fp.name)
 
     # output 1 - fasta of sequences
     if args.output:
         fasta_ofile = args.output
     else:
-        (root,ext) = os.path.splitext(fp.name)
+        (root,ext) = os.path.splitext(fastg.name)
         fasta_ofile = root + ext.replace(".fastg", ".nodes.fasta")
 
-    parse_lines(fastg, f_ofile)
+    parse_lines(fastg, fasta_ofile)
