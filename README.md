@@ -67,6 +67,13 @@ Under the `intermediate_files` subdirectory `<prefix>_cycs.fasta` is a fasta fil
 Under the `logs` subdirectory, the file `recycler2.log` contains all information about the Recycler2 run. Other log files in the `logs` subdirectory may be helpful if there is an error or failure in one of the stages that runs BLAST, BWA, or PlasClass.
 
 ## Advanced usage
+More advanced command line options allow for different stages in the Recycler2 pipeline to be modified:
+
+`-sc/--use_scores`: Flag to determine whether to use plasmid scores. Use `False` to turn off plasmid score use. Default: `True`
+
+`-gh/--use_gene_hits`: Flag to determine whether to use plasmid specific genes. Use `False` to turn off plasmid gene use. Default: `True`
+
+`-pc/--plasclass`: PlasClass score file. If PlasClass classification of the assembly graph nodes has already been performed, provide the name of the PlasClass output file. (For example: the `intermediate_files/plasclass.out` file from a previous run of Recycler2).
 
 ### Plasmid-specific genes
 
