@@ -89,6 +89,26 @@ In addition, all of the different thresholds used in the algorithm can be change
 
 `-sls/selfloop_score_thresh`: Threshold plasmid score above which a self-loop is considered a potential plasmid. Default: 0.9.
 
+`-slm/--selfloop_mate_thresh`: Threshold fraction of off-loop mate-pairs, below which a self-loop is considered a potential plasmid. Default:0.1.
+
+`-cst/--chromosome_score_thresh`: Threshold score, below which a long node is considered a chromosome node. Default: 0.2.
+
+`-clt/--chromosome_length_thresh`: Threshold length, above which a low scoring node is considered a chromosome node. Default: 10000.
+
+`-pst/--plasmid_score_thresh`: Threshold score, above which a long node is considered a plasmid node. Default: 0.9.
+
+`-plt/--plasmid_length_thresh`: Threshold length, above which a high scoring node is considered a plasmid node. Default: 10000.
+
+`-cd/--good_cyc_dominated_thresh`: Threshold for the maximum fraction of nodes with most mate-pairs off the cycle allowed for the cycleto be considered a potential plasmid. Default: 0.5.
+
+Instead of inputting all of these options on the command-line before each run of Recycler2, the user can change them in the file `bin/params.json`. Set each variable in this file to the desired value and it will be used in Recycler2. Any value passed as a command-line parameter will override the values set in this file.
+
 ### Plasmid-specific genes
+
+Recycler2 searches for plasmid-specific genes in the assembly graph and potential plasmids. Curated sets of plasmid-specific genes (see the Recycler2 manuscript for details) are located in the `data` directory.
+
+The user can add their own plasmid-specific gene sets in this directory. You may put nucleotide gene sequences in the `data/nt` subdirectory, or amino acid protein sequences in the `data/aa` subdirectory. The sequence files should be in fasta format.
+
+If you wish to remove certain plasmid-specific sets, simply move them out of the `data` directory.
 
 
