@@ -15,13 +15,12 @@ We recommend using a virtual environment. For example, in Linux, before running 
 python -m venv recycler2-env
 source recycler2-env/bin/activate
 ```
-
 To install, download and run setup.py:
-
+```
     git clone https://github.com/Shamir-Lab/Recycler2.git
     cd Recycler2
     python setup.py install
-
+```
 It is possible to install as a user without root permissions:
 ```
 python setup.py install --user
