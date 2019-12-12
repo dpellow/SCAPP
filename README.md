@@ -2,6 +2,15 @@
 
 Recycler2 assembles plasmids from metagenomic assembly graphs.
 
+  * [Installation](#installation)
+      - [Configuring paths to required executables](#configuring-paths-to-required-executables)
+  * [Basic Usage](#basic-usage)
+  * [Main output files](#main-output-files)
+  * [Advanced usage](#advanced-usage)
+    + [Plasmid-specific genes](#plasmid-specific-genes)
+
+
+
 ## Installation
 
 Recycler2 is written in Python3. Recycler2 uses NumPy, NetworkX, pySAM, and nose. The required versions of these required dependencies will all be installed by the setup.py script.
