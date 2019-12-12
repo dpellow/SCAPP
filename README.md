@@ -25,3 +25,5 @@ It is possible to install as a user without root permissions:
 ```
 python setup.py install --user
 ```
+#### Configuring paths to required executables
+The BWA, samtools, and BLAST+ executables must be available to Recycler2. They can either be added to your `PATH` environment variable, or you can specify the paths to each of them in the file `bin/config.json`.
