@@ -49,5 +49,25 @@ The common command line options are:
 
 `-p/--num_processes`: Number of processes to use. Default: 16
 
+`-r1/--reads1`: Paired-end reads file 1
+
+`-r2/--reads2`: Paired-end reads file 2
+
+`-b/--bam`: BAM alignment file aligning reads to graph nodes `-b` and `-r1`,`-r2` are mutually exclusive
+
+## Main output files
+The output files are written in the directory specified by the user:
+
+`<prefix>.confident_cycs.fasta` is the main output fasta of the plasmid predictions. `<prefix>` is the name of the assembly graph file (minus the `.fastg` suffix).
+
+Under the `intermediate_files` subdirectory `<prefix>_cycs.fasta` is a fasta file of **all** cyclic paths that were considered as potential plasmids before filtering to create the subset that is output.
+
+`intermediate_files/reads_pe_primary.sort.bam(.bai)` is the alignment file for the reads to the assembly graph. It can be re-used with the `-b` option if Recycler2 is re-run on the same sample.
+
+Under the `logs` subdirectory, the file `recycler2.log` contains all information about the Recycler2 run. Other log files in the `logs` subdirectory may be helpful if there is an error or failure in one of the stages that runs BLAST, BWA, or PlasClass.
+
+## Advanced usage
+
+### Plasmid-specific genes
 
 
