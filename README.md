@@ -41,19 +41,19 @@ python recycler2.py -g <fastg graph> -o <output directory> [-k <max k value>] -b
 ```
 The common command line options are:
 
-`-g/--graph`: : Assembly graph fastg file
+`-g/--graph`: : Assembly graph fastg file.
 
-`-o/--output_dir`: Output directory
+`-o/--output_dir`: Output directory.
 
-`-k/max_k`: Maximum k value used by the assembler. Default: 55
+`-k/max_k`: Maximum k value used by the assembler. Default: 55.
 
-`-p/--num_processes`: Number of processes to use. Default: 16
+`-p/--num_processes`: Number of processes to use. Default: 16.
 
-`-r1/--reads1`: Paired-end reads file 1
+`-r1/--reads1`: Paired-end reads file 1.
 
-`-r2/--reads2`: Paired-end reads file 2
+`-r2/--reads2`: Paired-end reads file 2.
 
-`-b/--bam`: BAM alignment file aligning reads to graph nodes `-b` and `-r1`,`-r2` are mutually exclusive
+`-b/--bam`: BAM alignment file aligning reads to graph nodes `-b` and `-r1`,`-r2` are mutually exclusive.
 
 ## Main output files
 The output files are written in the directory specified by the user:
@@ -69,11 +69,25 @@ Under the `logs` subdirectory, the file `recycler2.log` contains all information
 ## Advanced usage
 More advanced command line options allow for different stages in the Recycler2 pipeline to be modified:
 
-`-sc/--use_scores`: Flag to determine whether to use plasmid scores. Use `False` to turn off plasmid score use. Default: `True`
+`-sc/--use_scores`: Flag to determine whether to use plasmid scores. Use `False` to turn off plasmid score use. Default: `True`.
 
-`-gh/--use_gene_hits`: Flag to determine whether to use plasmid specific genes. Use `False` to turn off plasmid gene use. Default: `True`
+`-gh/--use_gene_hits`: Flag to determine whether to use plasmid specific genes. Use `False` to turn off plasmid gene use. Default: `True`.
 
 `-pc/--plasclass`: PlasClass score file. If PlasClass classification of the assembly graph nodes has already been performed, provide the name of the PlasClass output file. (For example: the `intermediate_files/plasclass.out` file from a previous run of Recycler2).
+
+`-pf/--plasflow`: PlasFlow score file. To use PlasFlow scores for the nodes instead of PlasClass, provide the name of the PlasFlow output file.`-pf`,`-pc` are mutually exclusive.
+
+In addition, all of the different thresholds used in the algorithm can be changed by the user:
+
+`-m/--max_CV`: Maximum allowed coefficient of variation for coverage. Default: 0.5.
+
+`-l/--min_length`: Minimum allowed length for potential plasmid. Default: 1000.
+
+`-clft/--classification_thresh`: Threshold for classifying a potential plasmid as a plasmid. Default: 0.5.
+
+`-gm/--gene_match_thresh`: Threshold for % identity and fraction of length covered to determine plasmid gene matches. Default: 0.75.
+
+`-sls/selfloop_score_thresh`: Threshold plasmid score above which a self-loop is considered a potential plasmid. Default: 0.9.
 
 ### Plasmid-specific genes
 
