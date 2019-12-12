@@ -27,3 +27,27 @@ python setup.py install --user
 ```
 #### Configuring paths to required executables
 The BWA, samtools, and BLAST+ executables must be available to Recycler2. They can either be added to your `PATH` environment variable, or you can specify the paths to each of them in the file `bin/config.json`.
+
+For example, if the BWA executable is in `/usr/bin/bwa/` then the line `"BWA_PATH" : "/usr/bin/bwa",` should be completed in the `config.json` file.
+
+## Basic Usage
+The script `bin/recycler2.py` is used to run the Recycler2 pipeline. It is invoked as follows: 
+```
+python recycler2.py -g <fastg graph> -o <output directory> [-k <max k value>] -r1 <reads 1> -r2 <reads 2> [-p <num processes>]
+```
+If a BAM alignment file of the reads to the assembly graph already exists, then use the following command to avoid re-running the alignment:
+```
+python recycler2.py -g <fastg graph> -o <output directory> [-k <max k value>] -b <BAM file> [-p <num processes>]
+```
+The common command line options are:
+
+`-g/--graph`: : Assembly graph fastg file
+
+`-o/--output_dir`: Output directory
+
+`-k/max_k`: Maximum k value used by the assembler. Default: 55
+
+`-p/--num_processes`: Number of processes to use. Default: 16
+
+
+
