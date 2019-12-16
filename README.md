@@ -26,7 +26,7 @@ source recycler2-env/bin/activate
 ```
 To install, download and run setup.py:
 ```
-    git clone https://github.com/Shamir-Lab/Recycler2.git
+    git clone https://github.com/dpellow/Recycler2.git
     cd Recycler2
     python setup.py install
 ```
