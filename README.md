@@ -35,7 +35,7 @@ It is possible to install as a user without root permissions:
 python setup.py install --user
 ```
 
-To install PlasClass:
+To install PlasClass, in the folder you would like to install do:
 ```
 git clone https://github.com/Shamir-Lab/PlasClass.git
 cd PlasClass
