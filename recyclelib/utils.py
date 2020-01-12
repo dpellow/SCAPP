@@ -13,7 +13,7 @@ import time
 import PARAMS
 
 complements = {'A':'T', 'C':'G', 'G':'C', 'T':'A'}
-logger = logging.getLogger("recycle_logger")
+logger = logging.getLogger("scapp_logger")
 
 def readfq(fp): # this is a generator function
     """ # lh3's fast fastX reader:

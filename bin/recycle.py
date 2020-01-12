@@ -14,7 +14,7 @@ import PARAMS
 def parse_user_input():
     parser = argparse.ArgumentParser(
         description=
-        'Recycler extracts likely plasmids (and other circular DNA elements) from de novo assembly graphs'
+        'SCAPP extracts likely plasmids (and other circular DNA elements) from de novo assembly graphs'
         )
     parser.add_argument('-g','--graph',
      help='(spades 3.50+) assembly graph FASTG file to process; recommended for spades 3.5: before_rr.fastg, for spades 3.6+:assembly_graph.fastg',
@@ -97,12 +97,12 @@ def parse_user_input():
 
     return parser.parse_args()
 
-def run_recycler2(fastg, outdir, bampath, num_procs, max_k, \
+def run_scapp(fastg, outdir, bampath, num_procs, max_k, \
                     genes_file, use_genes, scores_file, use_scores, \
                     max_CV, min_length, ISO=False):
-    ''' Run run_recycler2'''
+    ''' Run SCAPP'''
 
-    logger = logging.getLogger("recycle_logger")
+    logger = logging.getLogger("scapp_logger")
 
     basename, _ = os.path.splitext(os.path.basename(fastg))
     fasta_ofile = os.path.join(outdir, basename+".cycs.fasta")
@@ -267,11 +267,11 @@ def main():
         PARAMS.GOOD_CYC_DOMINATED_THRESH = args.good_cyc_dominated_thresh
 
     # Set up logging and write config and options to the log file
-    logfile = os.path.join(args.output_dir,"recycler2.log")
+    logfile = os.path.join(args.output_dir,"scapp.log")
     logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
-    logger = logging.getLogger("recycle_logger")
+    logger = logging.getLogger("scapp_logger")
 
-    run_recycler2(fastg, args.output_dir, bampath, num_procs, max_k, \
+    run_scapp(fastg, args.output_dir, bampath, num_procs, max_k, \
                     args.gene_hits, use_genes, args.scores, use_scores, \
                     max_CV, min_length, ISO)
 

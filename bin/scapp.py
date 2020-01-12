@@ -1,4 +1,4 @@
-# The entire Recycler2 workflow
+# The entire SCAPP workflow
 # Allow flexibility for different parts to be run manually
 
 import argparse
@@ -21,7 +21,7 @@ import create_hits_fasta # for creating fasta of filtered plasmids
 
 def parse_user_input():
     parser = argparse.ArgumentParser(
-        description='Recycler2 extracts likely plasmids from de novo assembly graphs'
+        description='SCAPP extracts likely plasmids from de novo assembly graphs'
     )
     parser.add_argument('-g','--graph',
      help='Assembly graph FASTG file to process',
@@ -185,11 +185,11 @@ def main():
         raise
 
     # Set up logging and write config and options to the log file
-    logfile = os.path.join(logs_dir,"recycler2.log")
+    logfile = os.path.join(logs_dir,"scapp.log")
     logging.basicConfig(filemode='w', filename=logfile, level=logging.INFO, format='%(asctime)s: %(message)s', datefmt='%d/%m/%Y %H:%M')
-    logger = logging.getLogger("recycle_logger")
+    logger = logging.getLogger("scapp_logger")
 
-    logger.info("Beginning Recycler2 workflow")
+    logger.info("Beginning SCAPP workflow")
     logger.info("Got parameters:\n\tInput graph: {}\n\tOutput directory: {} \n\tMaximum k value: {}\
     \n\t# processes: {}\n\tMaximum CV: {}\n\tMinimum Length: {}\n\tBamfile: {}\n\tReads file 1: {}\
     \n\tReads file 2: {}\n\tUse scores: {}\n\tUse genes: {}\n\tPath to BWA executables: {}\
@@ -335,15 +335,15 @@ def main():
         logger.info("{} seconds to find plasmid-specific gene hits".format(
             time_end-time_start))
 
-    # Step 4: Run Recycler2 annotated-assembly-graph-based plasmid assembly
-    print("Starting Recycler2 plasmid finding")
+    # Step 4: Run SCAPP annotated-assembly-graph-based plasmid assembly
+    print("Starting SCAPP plasmid finding")
     logger.info("Starting plasmid finding")
     time_start = time.time()
-    recycle.run_recycler2(fastg, int_dir, bamfile, num_procs, max_k, \
+    recycle.run_scapp(fastg, int_dir, bamfile, num_procs, max_k, \
                     gene_hits_path, use_genes, scores_file, use_scores, \
                     PARAMS.MAX_CV, PARAMS.MIN_LENGTH)
     time_end = time.time()
-    logger.info("{} seconds to run Recycler2 plasmid finding".format(
+    logger.info("{} seconds to run SCAPP plasmid finding".format(
         time_end-time_start))
 
 
