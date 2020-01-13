@@ -1,3 +1,5 @@
+# THE CODE IN THIS REPOSITORY IS NOW MAINTAINED AT: https://github.com/Shamir-Lab/SCAPP
+
 # SCAPP
 
 SCAPP assembles plasmids from metagenomic assembly graphs.
