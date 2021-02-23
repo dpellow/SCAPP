@@ -50,8 +50,14 @@ with open(infile) as f, open(outfile,'w') as o:
         continue
       pos_neighbours = [x for x in headers[name] if x[0] == "+"]
       neg_neighbours = [x for x in headers[name] if x[0] == "-"]
-      o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+":"+",".join([n[1]+"_len_"+str(seqs_dict[n[1]][0])+"_cov_"+str(seqs_dict[n[1]][1])+("'"if n[2]=="-" else "") for n in pos_neighbours])+ ";\n"+fields[2]+'\n')
-      o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+"':"+",".join([n[1]+"_len_"+str(seqs_dict[n[1]][0])+"_cov_"+str(seqs_dict[n[1]][1])+("'"if n[2]=="-" else "") for n in neg_neighbours])+ ";\n"+rc(fields[2])+'\n')
+      if len(pos_neighbours) > 0:
+          o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+":"+",".join([n[1]+"_len_"+str(seqs_dict[n[1]][0])+"_cov_"+str(seqs_dict[n[1]][1])+("'"if n[2]=="-" else "") for n in pos_neighbours])+ ";\n"+fields[2]+'\n')
+      else:
+          o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+";")
+      if len(neg_neighbours) > 0:
+          o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+"':"+",".join([n[1]+"_len_"+str(seqs_dict[n[1]][0])+"_cov_"+str(seqs_dict[n[1]][1])+("'"if n[2]=="-" else "") for n in neg_neighbours])+ ";\n"+rc(fields[2])+'\n')
+      elif len(pos_neighbours) > 0:
+        o.write('>'+name+"_len_"+str(fields[0])+"_cov_"+str(fields[1])+";")
         
 
 
