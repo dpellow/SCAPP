@@ -25,6 +25,6 @@ setup(
         'networkx==2.4',
         'pysam==0.15.3',
         'nose==1.3',
-        'numpy==1.17'],
+        'numpy==1.22.0'],
     include_package_data=True,
 )
